@@ -1,0 +1,8 @@
+Manifest.toml
+*.pdf
+*.png
+*.jpg
+.playwright-cli/
+.claude/
+__pycache__/
+*.pyc
