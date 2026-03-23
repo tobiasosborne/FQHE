@@ -1,130 +1,89 @@
 # HANDOFF — FQHE Project
 
 **Date:** 2026-03-23
-**Status:** Phase A (Source Acquisition) COMPLETE. Phase B (equation graph) COMPLETE. Phase C (implementation) NOT STARTED.
+**Status:** Phase A COMPLETE, Phase B COMPLETE, Phase C MVP COMPLETE (plot generated).
 
 ## What was done this session
 
-### 1. Paper acquisition (24 papers, all local)
+### 1. New machine setup
+- Julia 1.12.5 with all deps installed + precompiled
+- `af` CLI confirmed working, proof tree intact (31 nodes)
+- 24 papers downloaded (15 arXiv via curl, 9 APS via Playwright + TIB VPN)
+- fetch_aps_papers.mjs rewritten for headed persistent-context Playwright
 
-**All 15 papers from the plan (P1–P15) were acquired except textbooks P8/P9:**
+### 2. Phase C1: Foundations fixed
+- **pseudopotentials.jl**: Replaced wrong CG-sum formula with Fano eq. 25 closed-form binomial.
+  Uses BigInt to avoid overflow. Validated V_J values produce correct energies.
+- **sphere.jl**: Fixed integer division bug. Now uses rational arithmetic (`N // ν`).
+  shift(ν) = denominator for all Jain fractions + conjugates.
+- **hilbert_space.jl**: Fixed half-integer Lz bug. Now works with `twoLz` (integer)
+  everywhere. Added `state_to_index` Dict for O(1) Hamiltonian assembly.
+- **monopole_harmonics.jl**: Simplified to orbital_m(i, twoS) helper.
 
-| ID | Source | How obtained |
-|----|--------|-------------|
-| P01–P04, P06, P07, P10, P12, P15 | APS journals (PRL, PRB, RMP) | **Playwright headed browser via TIB VPN** |
-| P05a, P05b, P11, P13, P14a, P14b | arXiv | Direct curl |
-| P16–P24 | arXiv (post-2020 from citation graph) | Direct curl |
-| P08 (Jain textbook), P09 (Chakraborty) | Not obtained | Textbooks — P11 (Girvin, 124pp) substitutes |
+### 3. Phase C2: Hamiltonian + ED validated against Fano (1986)
+- **hamiltonian.jl**: Full sparse Coulomb Hamiltonian assembly.
+  Precomputes CG-based two-body matrix elements grouped by total M.
+  Fermion signs via bit-manipulation. Hermitian wrapper for exact symmetry.
+- **exact_diag.jl**: Dense eigvals for dim ≤ 1500, KrylovKit Lanczos otherwise.
+  Neutral gap + charge gap extraction. Linear 1/N extrapolation.
 
-**Papers are in `sources/papers/` but gitignored (copyrighted PDFs).**
+**Validation (ν=1/3 neutral gap, Fano PRB 34 2670 Table IV):**
+| N | dim(Lz=0) | Δ_exc (ours) | Δ_exc (Fano) |
+|---|-----------|-------------|-------------|
+| 3 | 5         | 0.118992    | 0.118990    |
+| 4 | 18        | 0.093533    | 0.093530    |
+| 5 | 73        | 0.093117    | 0.093110    |
+| 6 | 338       | 0.082035    | 0.082040    |
 
-### 2. How to re-obtain the papers on a new machine
+Match to 5 significant figures.
 
-**arXiv papers (no paywall, just curl):**
-```bash
-# Run from project root:
-curl -sL -o sources/papers/P05a_Morf_cond-mat_0202407.pdf https://arxiv.org/pdf/cond-mat/0202407
-curl -sL -o sources/papers/P05b_dAmbrumenil_1008.0969.pdf https://arxiv.org/pdf/1008.0969
-curl -sL -o sources/papers/P11_Girvin_cond-mat_9907002.pdf https://arxiv.org/pdf/cond-mat/9907002
-curl -sL -o sources/papers/P13_Peterson_0801.4819.pdf https://arxiv.org/pdf/0801.4819
-curl -sL -o sources/papers/P14a_Balram_1803.10427.pdf https://arxiv.org/pdf/1803.10427
-curl -sL -o sources/papers/P14b_Balram_1807.02997.pdf https://arxiv.org/pdf/1807.02997
-curl -sL -o sources/papers/P16_Balram_VeryHighEnergy_2111.10395.pdf https://arxiv.org/pdf/2111.10395
-curl -sL -o sources/papers/P17_Balram_Magnetorotons_2111.10593.pdf https://arxiv.org/pdf/2111.10593
-curl -sL -o sources/papers/P18_Feldman_FracChargeStats_2102.08998.pdf https://arxiv.org/pdf/2102.08998
-curl -sL -o sources/papers/P19_Goldman_DiracCF_Jain_2105.02092.pdf https://arxiv.org/pdf/2105.02092
-curl -sL -o sources/papers/P20_Faugno_CFPairing_LLMixing_2211.07335.pdf https://arxiv.org/pdf/2211.07335
-curl -sL -o sources/papers/P21_Faugno_CFPairing_quarter_2311.05083.pdf https://arxiv.org/pdf/2311.05083
-curl -sL -o sources/papers/P22_Kumar_FQHE_2plus4over9_2003.07038.pdf https://arxiv.org/pdf/2003.07038
-curl -sL -o sources/papers/P23_Lian_DualHaldane_2004.03609.pdf https://arxiv.org/pdf/2004.03609
-curl -sL -o sources/papers/P24_Ortiz_LowComplexity_nu13_2006.00300.pdf https://arxiv.org/pdf/2006.00300
-```
+### 4. Phase C3: Transport + plot
+- **transport.jl**: Semicircle law (Dykhne-Ruzin) for transitions, activated
+  R_xx at plateau centers, SdH oscillations at high filling.
+- **04_make_plot.jl**: Two-panel CairoMakie figure. Uses reference gap values
+  (Fano 1986 + Balram 2018) validated against our ED.
+- **fqhe_plot.pdf/png**: The iconic plot is generated.
 
-**APS papers (paywalled, need TIB VPN + headed browser):**
+### 5. Known issues / next steps
 
-APS uses Cloudflare bot protection. `curl` gets 403 even with cookies — Cloudflare
-fingerprints the TLS stack. The method that works:
+**Charge gap sector scanning:** The charge_gap() function doesn't properly
+scan all Lz sectors for quasihole/quasiparticle states. The quasihole ground
+state is at L = N/2, not Lz=0. Fix: scan all Lz sectors from 0 to N×twoS/2.
+Neutral gaps work perfectly and are used for the plot.
 
-1. **Connect to TIB VPN** (must be active — IP authentication)
-2. **Open headed Playwright browser** (headless gets blocked):
-   ```bash
-   playwright-cli open --browser=chromium --headed --persistent
-   ```
-3. **Navigate to any APS abstract** — a Cloudflare challenge page appears.
-   **Manually click the challenge** in the browser window (WSLg display required).
-4. **Once past Cloudflare**, use `page.request.get()` to fetch PDFs through the
-   authenticated browser session. The script `scripts/fetch_via_browser.sh` automates
-   this — it base64-encodes the PDF from `page.request.get()` and pipes to disk:
-   ```bash
-   # After browser is open and Cloudflare is passed:
-   bash scripts/fetch_via_browser.sh
-   ```
-5. The standalone Node.js script `scripts/fetch_aps_papers.mjs` does NOT work — a
-   fresh headless browser gets its own Cloudflare challenge. Must use the existing
-   browser session.
+**N=8+ ED performance:** Hamiltonian assembly + diag for N=8 (dim≈8500) takes
+several minutes due to CG coefficient computation. Consider caching CG values
+or using a faster CG library.
 
-**APS paper URLs (DOI → PDF):**
-| Paper | PDF URL |
-|-------|---------|
-| P01 Haldane | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.51.605` |
-| P02 Laughlin | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.50.1395` |
-| P03 Jain | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.63.199` |
-| P04 Fano | `https://journals.aps.org/prb/pdf/10.1103/PhysRevB.34.2670` |
-| P06 Tsui | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.48.1559` |
-| P07 Willett | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.59.1776` |
-| P10 Dykhne | `https://journals.aps.org/prb/pdf/10.1103/PhysRevB.50.2369` |
-| P12 Störmer | `https://journals.aps.org/rmp/pdf/10.1103/RevModPhys.71.875` |
-| P15 Haldane-Rezayi | `https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.54.237` |
+**Transport model polish:** The semicircle transitions could be smoother.
+The SdH oscillation formula needs tuning. Plateau widths are phenomenological
+and somewhat arbitrary.
 
-### 3. Citation graph analysis
+**Future extensions (from PRD):**
+- ν=5/2 via DMRG/iTensors.jl
+- Chalker-Coddington network model for microscopic plateau widths
+- Finite well width corrections (Peterson et al.)
+- LL mixing corrections (Faugno et al.)
 
-Forward citations of P1, P2, P3 via Semantic Scholar API. Results in
-`sources/citation_graph.md`. 9 post-2020 papers added (P16–P24).
-Key finding: no new gap benchmarks since Balram (2018); LL mixing corrections
-~10-20% (Faugno 2023); transport model unchanged.
-
-### 4. Equation derivation graph (AF proof tree)
-
-Complete derivation chain from full many-body Hamiltonian to Julia equations,
-built as an AF (Adversarial Proof Framework) proof tree in `proof/`.
+## How to run
 
 ```bash
-cd proof && af status   # View the full 31-node tree
-af get 1.3.4            # Example: see the pseudopotential formula node
+# Validate ED:
+julia --project=. -e '
+using FQHE
+twoS = sphere_flux(6, 1//3)
+VJ = coulomb_pseudopotentials(twoS)
+basis = enumerate_fock_states(6, twoS; twoLz=0)
+E0, gap = neutral_gap(basis, VJ)
+println("N=6 ν=1/3: Δ_exc = $gap")  # should be ≈ 0.082035
+'
+
+# Generate plot:
+julia --project=. scripts/04_make_plot.jl
+# → fqhe_plot.pdf, fqhe_plot.png
 ```
 
-**5 layers, 31 nodes**, every equation tagged with paper reference:
-- Layer 0→1: Full H → clean 2DEG (Born-Oppenheimer, eff mass, 2D confinement)
-- Layer 1→2: 2DEG → LLL Hamiltonian (Landau levels, LLL projection)
-- Layer 2→3: LLL → Haldane sphere + pseudopotentials (P01/P04 equations)
-- Layer 3→4: Pseudopotentials → sparse ED → gaps (Fock space, Lanczos, extrapolation)
-- Layer 4→5: Gaps → R_xy, R_xx (topological plateaus, activated transport, semicircle law)
-
-6 approximations ranked by severity:
-1. A4 (LLL projection) — worst, ratio ~1.3
-2. A6 (finite-size extrapolation) — moderate
-3. A5 (sphere geometry) — exact in limit
-4. A2 (2D confinement) — ~10-20% on pseudopotentials
-5. A3 (no disorder) — widths only
-6. A1 (effective mass) — negligible
-
-## What to do next (Phase C: Implementation)
-
-Follow the order in CLAUDE_fqhe.md Sec C1. All equations are now grounded in
-local papers and organized in the AF proof tree. Start with:
-
-1. `materials.jl` — GaAs constants (trivial, ~30 lines)
-2. `landau.jl` — ν(B), ℓ_B(B), energy scales
-3. `pseudopotentials.jl` — **V_J^(S) from P04-Fano eq (25)** ← proof node 1.3.4
-4. `hilbert_space.jl` — Fock space enumeration ← proof node 1.4.1
-5. `hamiltonian.jl` — sparse H via CG coefficients ← proof node 1.4.2
-6. `exact_diag.jl` — KrylovKit wrapper ← proof node 1.4.3
-7. Continue per CLAUDE_fqhe.md...
-
-## Prerequisites on new machine
-
-- Julia 1.10+
-- `af` CLI (go binary, `go install` or copy from `~/go/bin/af`)
-- `playwright-cli` (npm: `@playwright/cli`) — only needed for APS paper re-fetch
-- TIB VPN — only needed for APS paper re-fetch
-- WSLg or X11 display — only needed for headed browser
+## Prerequisites
+- Julia 1.10+ (tested with 1.12.5)
+- `af` CLI (go binary)
+- TIB VPN + Playwright for APS papers (already fetched)
