@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Fetch APS papers using Playwright with saved browser cookies (TIB VPN auth)
+// Fetch APS papers via headed Playwright browser (TIB VPN required).
 // Usage: node scripts/fetch_aps_papers.mjs
+//
+// 1. Ensure TIB VPN is active.
+// 2. Script opens headed Chromium and navigates to an APS page.
+// 3. Click the Cloudflare challenge in the browser window.
+// 4. Script auto-detects when you pass it and fetches all 9 PDFs.
 
-import { chromium } from '/home/tobiasosborne/.npm/_npx/e41f203b7505f1fb/node_modules/playwright-core/index.mjs';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { chromium } from 'playwright';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 
 const PAPERS_DIR = resolve(import.meta.dirname, '..', 'sources', 'papers');
-const STATE_FILE = resolve(import.meta.dirname, '..', 'sources', '.aps-cookies.json');
 
 const PAPERS = [
   { id: 'P01', file: 'P01_Haldane_PRL_51_605_1983.pdf',       url: 'https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.51.605' },
@@ -21,82 +25,108 @@ const PAPERS = [
   { id: 'P15', file: 'P15_Haldane_Rezayi_PRL_54_237_1985.pdf', url: 'https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.54.237' },
 ];
 
+async function waitForCloudflare(page, timeoutMs = 180000) {
+  console.log('Waiting for Cloudflare challenge to be solved...');
+  console.log('>>> Click the challenge in the browser window <<<');
+  console.log(`>>> You have ${timeoutMs/1000}s — take your time <<<\n`);
+
+  // Wait for an element that only exists on the real APS page, not on Cloudflare.
+  // APS abstract pages have <h3 class="title"> or <div id="article"> etc.
+  // We try multiple selectors and also check for any <meta> tag with "aps.org".
+  try {
+    await page.waitForFunction(() => {
+      // Check for real APS content — any of these signals we're past Cloudflare
+      return document.querySelector('meta[name="citation_title"]')
+        || document.querySelector('h3.title')
+        || document.querySelector('#article')
+        || document.querySelector('.article-title')
+        || (document.title && document.title.includes('Phys. Rev.'));
+    }, { timeout: timeoutMs });
+
+    const title = await page.title();
+    console.log(`Page loaded: "${title}"`);
+    console.log('Cloudflare passed!\n');
+    await new Promise(r => setTimeout(r, 2000));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function main() {
-  if (!existsSync(STATE_FILE)) {
-    console.error('No cookie state file found at', STATE_FILE);
-    console.error('Run playwright-cli in headed mode first to pass Cloudflare, then state-save.');
+  mkdirSync(PAPERS_DIR, { recursive: true });
+
+  console.log('Launching HEADED Chromium (persistent profile)...');
+  console.log('Make sure TIB VPN is active!\n');
+
+  // Use persistent context — Cloudflare cookies survive across runs
+  const userDataDir = resolve(PAPERS_DIR, '..', '.browser-profile');
+  mkdirSync(userDataDir, { recursive: true });
+
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    headless: false,
+    args: ['--disable-blink-features=AutomationControlled'],
+    viewport: { width: 1280, height: 900 },
+  });
+  const page = context.pages()[0] || await context.newPage();
+
+  // Navigate to an APS abstract page to trigger Cloudflare
+  const triggerUrl = 'https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.51.605';
+  console.log(`Navigating to: ${triggerUrl}`);
+  await page.goto(triggerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  const passed = await waitForCloudflare(page);
+  if (!passed) {
+    console.error('Timed out waiting for Cloudflare. Aborting.');
+    await context.close();
     process.exit(1);
   }
 
-  // Find chromium
-  const browserPaths = [
-    '/home/tobiasosborne/.cache/ms-playwright/chromium-1212/chrome-linux64/chrome',
-    '/home/tobiasosborne/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome',
-  ];
-  let execPath = browserPaths.find(p => existsSync(p));
-  if (!execPath) {
-    console.error('No chromium found');
-    process.exit(1);
-  }
-
-  console.log('Launching browser...');
-  const browser = await chromium.launch({
-    executablePath: execPath,
-    headless: true
-  });
-
-  const context = await browser.newContext({
-    storageState: STATE_FILE,
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-  });
-
-  const page = await context.newPage();
+  console.log('Fetching PDFs...\n');
 
   let downloaded = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const paper of PAPERS) {
     const outPath = resolve(PAPERS_DIR, paper.file);
     if (existsSync(outPath)) {
       console.log(`SKIP ${paper.id}: ${paper.file} (already exists)`);
+      skipped++;
       continue;
     }
 
     try {
-      console.log(`FETCH ${paper.id}: ${paper.url}`);
+      process.stdout.write(`FETCH ${paper.id}: ${paper.file} ... `);
       const response = await page.request.get(paper.url, { timeout: 30000 });
 
       if (response.status() !== 200) {
-        console.error(`  FAIL ${paper.id}: HTTP ${response.status()}`);
+        console.log(`FAIL (HTTP ${response.status()})`);
         failed++;
         continue;
       }
 
       const body = await response.body();
-
-      // Verify it's actually a PDF
       const header = body.slice(0, 5).toString();
       if (header !== '%PDF-') {
-        console.error(`  FAIL ${paper.id}: Not a PDF (got: ${header})`);
+        console.log(`FAIL (not a PDF, got: ${header})`);
         failed++;
         continue;
       }
 
       writeFileSync(outPath, body);
-      console.log(`  OK ${paper.id}: ${paper.file} (${(body.length/1024).toFixed(0)} KB)`);
+      console.log(`OK (${(body.length/1024).toFixed(0)} KB)`);
       downloaded++;
 
-      // Small delay to be polite
       await new Promise(r => setTimeout(r, 1500));
-
     } catch (e) {
-      console.error(`  FAIL ${paper.id}: ${e.message}`);
+      console.log(`ERROR: ${e.message}`);
       failed++;
     }
   }
 
-  await browser.close();
-  console.log(`\nDone: ${downloaded} downloaded, ${failed} failed, ${PAPERS.length - downloaded - failed} skipped`);
+  console.log(`\nDone: ${downloaded} downloaded, ${failed} failed, ${skipped} skipped`);
+  await context.close();
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

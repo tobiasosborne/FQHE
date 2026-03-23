@@ -9,3 +9,5 @@ __pycache__/
 
 # Session cookies (sensitive, machine-specific)
 sources/.aps-cookies.json
+node_modules/
+package*.json

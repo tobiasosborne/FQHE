@@ -2,7 +2,7 @@
 # Download APS papers via the existing playwright-cli headed browser session.
 # Requires: browser already open and authenticated (Cloudflare passed, TIB VPN active).
 
-PAPERS_DIR="/home/tobiasosborne/Projects/FQHE/sources/papers"
+PAPERS_DIR="$(cd "$(dirname "$0")/.." && pwd)/sources/papers"
 
 declare -A PAPERS
 PAPERS[P01_Haldane_PRL_51_605_1983.pdf]="https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.51.605"

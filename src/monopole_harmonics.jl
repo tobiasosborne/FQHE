@@ -5,18 +5,22 @@
 # This file provides angular momentum algebra utilities.
 #
 # Sources:
-#   P1: Haldane, PRL 51, 605 (1983)
-#   Wu & Yang, Nucl. Phys. B 107, 365 (1976)
+#   P01: Haldane, PRL 51, 605 (1983)
+#   P04: Fano et al., PRB 34, 2670 (1986), Eq. (21)
 
-export lll_orbitals
+export lll_orbitals, orbital_m
 
 """
-    lll_orbitals(twoS) → Vector{Int}
+    lll_orbitals(twoS) → 0:twoS
 
-Return the m-values of LLL orbitals on a sphere with monopole strength S = twoS/2.
-m ranges from -S to S in integer steps, giving 2S+1 orbitals.
+Orbital indices for LLL on sphere with monopole strength S = twoS/2.
+There are twoS + 1 orbitals.  Use `orbital_m(i, twoS)` for the m-value.
 """
-function lll_orbitals(twoS::Integer)
-    S = twoS
-    return collect(-S:2:S)  # m values in units of 1/2, stored as integers 2m
-end
+lll_orbitals(twoS::Integer) = 0:twoS
+
+"""
+    orbital_m(i, twoS) → Float64
+
+Angular momentum m-value of orbital i: m = (2i − twoS)/2.
+"""
+orbital_m(i::Integer, twoS::Integer) = (2i - twoS) / 2.0
