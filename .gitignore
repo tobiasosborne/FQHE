@@ -6,3 +6,6 @@ Manifest.toml
 .claude/
 __pycache__/
 *.pyc
+
+# Session cookies (sensitive, machine-specific)
+sources/.aps-cookies.json
