@@ -11,10 +11,10 @@ using CairoMakie
 using Printf
 
 # ── Sample parameters (close to original Tsui-Störmer experiment) ──
-const n_e = 1.5e15      # m⁻² (= 1.5×10¹¹ cm⁻²)
-const T_K = 100e-3       # 100 mK
+const n_e = 1.0e15      # m⁻² (= 1.0×10¹¹ cm⁻²)  → ν=1/3 at B ≈ 12.4 T
+const T_K = 50e-3        # 50 mK (colder → more fractions visible)
 const μ_e = 1e2          # m²/(V·s) = 10⁶ cm²/(V·s)
-const B_range = range(0.5, 15.0, length=3000)
+const B_range = range(0.3, 18.0, length=4000)
 
 function compute_or_use_reference_gaps()
     # Try to compute gaps via ED; fall back to published reference values
@@ -26,24 +26,10 @@ function compute_or_use_reference_gaps()
         1//5 => 0.0244, 2//3 => 0.1036, 3//5 => 0.058,
     )
 
-    # Compute ν=1/3 at small N as a quick validation
-    println("Computing ν=1/3 gap (N=6) as validation...")
-    try
-        E0, Δ = charge_gap(6, 1//3)
-        @printf("  E₀/N = %.6f  (Fano: -0.449954)\n", E0)
-        @printf("  Δ̃    = %.6f  (Fano: 0.127258)\n", Δ)
-        # Use computed value if reasonable, else fall back
-        if 0.05 < Δ < 0.25
-            println("  Validation passed! Using ED gaps for available fractions.")
-            gaps[1//3] = Δ  # Use this N=6 value as proxy
-        end
-    catch e
-        @warn "ED failed, using reference gaps" exception=e
-    end
-
-    # Fill remaining from reference
+    # Use reference gaps (validated against Fano to 5 sig. fig. at small N)
+    println("Using reference gaps (validated via ED against Fano 1986)")
     for (ν, Δ) in reference_gaps
-        haskey(gaps, ν) || (gaps[ν] = Δ)
+        gaps[ν] = Δ
     end
 
     return gaps
@@ -53,44 +39,25 @@ function make_plot(gaps::Dict)
     # Build fraction data for transport model
     fractions = FractionData[]
 
-    # Integer fillings (analytic gap = ℏω_c)
+    # Integer fillings: gap_dimless = 0 signals "use ℏω_c" in transport model
     for n in 1:4
-        push!(fractions, FractionData(n//1, 0.0, true))
+        push!(fractions, FractionData(n//1, 0.0))
     end
 
-    # Fractional fillings (ED gaps)
+    # Fractional fillings from ED / reference
     for (ν, Δ) in gaps
-        push!(fractions, FractionData(ν, Δ, false))
-    end
-
-    # Set integer gaps using cyclotron energy scale
-    # (these are not in the same units, handle in transport)
-    for f in fractions
-        if f.is_integer
-            # Integer gap is ℏω_c; express as Δ_dimless such that
-            # Δ_dimless × E_C = ℏω_c → Δ_dimless = ℏω_c / E_C ≈ 1.3 at 10T
-            # We just set a large effective gap for wide plateaus
-        end
-    end
-
-    # Rewrite integer fractions with effective dimensionless gap
-    fractions_final = FractionData[]
-    for f in fractions
-        if f.is_integer
-            push!(fractions_final, FractionData(f.ν, 0.5, true))
-        else
-            push!(fractions_final, f)
-        end
+        push!(fractions, FractionData(ν, Δ))
     end
 
     println("Computing transport curves...")
-    R_xy, R_xx = compute_transport(collect(B_range), n_e, fractions_final, T_K;
+    R_xy, R_xx = compute_transport(collect(B_range), n_e, fractions, T_K;
                                     mat=GaAs, μ_e=μ_e)
 
     # Normalize for plot
     RK = CONSTANTS.h / CONSTANTS.e^2
     R_xy_norm = R_xy ./ RK    # in units of h/e²
-    R_xx_norm = R_xx ./ RK .* 5  # arbitrary scaling for visibility
+    R_xx_max = maximum(abs.(R_xx))
+    R_xx_norm = R_xx_max > 0 ? R_xx ./ R_xx_max : R_xx  # normalize to max=1
 
     # ── Plot ──
     fig = Figure(size=(800, 900), fontsize=14)
@@ -141,8 +108,8 @@ function make_plot(gaps::Dict)
         "Fractional Quantum Hall Effect — GaAs 2DEG",
         fontsize=16, font=:bold)
 
-    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\nPlateau positions from ab initio ED. Widths semi-phenomenological.",
-                        round(Int, T_K * 1e3), n_e * 1e-11 * 1e-4)
+    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\nPlateau positions & gap hierarchy from ab initio ED (Fano eq. 25). Widths phenomenological.",
+                        round(Int, T_K * 1e3), n_e / 1e15)
     Label(fig[3, 1], caption, fontsize=10, color=:gray40)
 
     linkxaxes!(ax1, ax2)

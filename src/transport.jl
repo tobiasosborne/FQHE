@@ -2,7 +2,7 @@
 #
 # Semi-phenomenological transport model.
 # Ab initio: plateau positions (h/νe²), gap magnitudes, hierarchy.
-# Phenomenological: plateau widths (via mobility), transition shapes (semicircle law).
+# Phenomenological: plateau widths (via mobility), transition shapes.
 #
 # Sources:
 #   P10: Dykhne & Ruzin, PRB 50, 2369 (1994) — semicircle law
@@ -13,110 +13,112 @@ export compute_transport, FractionData
 """Data for one QH fraction used by the transport model."""
 struct FractionData
     ν::Rational{Int}
-    gap_dimless::Float64     # gap in units of e²/(ε ℓ_B)
-    is_integer::Bool
+    gap_dimless::Float64     # gap in units of e²/(ε ℓ_B), 0 for integer QHE
 end
 
 """
-    compute_transport(B_range, n_e, fractions, T; mat=GaAs, μ_e=1e2)
-    → (R_xy, R_xx)   [arrays same length as B_range]
+    compute_transport(B_range, n_e, fractions, T; mat, μ_e) → (R_xy, R_xx)
 
-Compute R_xy and R_xx vs B using gaps + semicircle transport law.
-μ_e in m²/(V·s)  (1e6 cm²/Vs = 1e2 m²/Vs).
+Compute R_xy and R_xx vs B.
+fractions: list of FractionData for all plateaus to include.
+μ_e in m²/(V·s).  T in Kelvin.
 """
 function compute_transport(B_range::AbstractVector, n_e::Real,
                            fractions::Vector{FractionData}, T::Real;
                            mat::MaterialParams=GaAs, μ_e::Real=1e2)
-    h = CONSTANTS.h
-    e = CONSTANTS.e
-    kB = CONSTANTS.k_B
-    RK = h / e^2                    # von Klitzing constant ≈ 25812.807 Ω
+    h = CONSTANTS.h;  e = CONSTANTS.e;  kB = CONSTANTS.k_B
+    RK = h / e^2
 
     # Sort fractions by ν (descending) → increasing B
     sorted = sort(fractions, by=f -> Float64(f.ν), rev=true)
-    ν_vals = [Float64(f.ν) for f in sorted]
-    B_centers = [n_e * h / (e * ν) for ν in ν_vals]
-    gap_phys = [f.gap_dimless * coulomb_energy(B, mat) / kB   # gap in Kelvin
-                for (f, B) in zip(sorted, B_centers)]
 
-    # Plateau half-widths in ν-space: proportional to gap/disorder
-    Γ = CONSTANTS.ħ * e / (mat.m_star * μ_e)   # disorder broadening [J]
-    w_ν = [min(Float64(f.ν) * 0.4,    # cap at 40% of ν
-               f.gap_dimless > 0 ? 0.05 * f.gap_dimless * coulomb_energy(B, mat) / Γ : 0.0)
-           for (f, B) in zip(sorted, B_centers)]
+    # Precompute: for each fraction, its B-center, physical gap, and plateau half-width in ν
+    ν_list  = Float64[];  B_list = Float64[];  gap_K = Float64[];  hw = Float64[]
+    for f in sorted
+        ν_f = Float64(f.ν)
+        B_f = n_e * h / (e * ν_f)
+        # Physical gap in Kelvin
+        if f.gap_dimless > 0
+            Δ_K = f.gap_dimless * coulomb_energy(B_f, mat) / kB
+        else
+            # Integer QHE: gap = ℏω_c
+            Δ_K = cyclotron_energy(B_f, mat) / kB
+        end
+        # Plateau half-width in ν: scales with gap/disorder
+        Γ_K = CONSTANTS.ħ * e / (mat.m_star * μ_e) / kB   # disorder broadening in K
+        w = clamp(0.03 * Δ_K / max(Γ_K, 1e-10), 0.003, ν_f * 0.12)
+        push!(ν_list, ν_f);  push!(B_list, B_f)
+        push!(gap_K, Δ_K);   push!(hw, w)
+    end
 
     R_xy = similar(B_range, Float64)
     R_xx = similar(B_range, Float64)
 
     for (bi, B) in enumerate(B_range)
-        B <= 0 && (R_xy[bi] = 0.0; R_xx[bi] = 0.0; continue)
+        if B <= 0.01
+            R_xy[bi] = 0.0;  R_xx[bi] = 0.0;  continue
+        end
 
         ν_B = n_e * h / (e * B)
 
-        # Find which plateau we're on (if any)
+        # ── Check each plateau ──
         on_plateau = false
-        for (fi, f) in enumerate(sorted)
-            νf = ν_vals[fi]
-            if abs(ν_B - νf) < w_ν[fi] && w_ν[fi] > 0
+        for fi in eachindex(sorted)
+            ν_f = ν_list[fi]
+            δν = abs(ν_B - ν_f)
+            w_f = hw[fi]
+            if δν < w_f
                 on_plateau = true
-                R_xy[bi] = RK / νf
-                # Activated R_xx at plateau center
-                Δ_K = gap_phys[fi]
-                R_xx[bi] = Δ_K > 0 ? 500.0 * exp(-Δ_K / (2 * T)) : 0.0
+                R_xy[bi] = RK / ν_f
+                # Activated R_xx: R_xx ∝ exp(-Δ/2kT) at plateau center
+                R_xx[bi] = gap_K[fi] > 0 ? 200.0 * exp(-gap_K[fi] / (2T)) : 0.0
                 break
             end
         end
         on_plateau && continue
 
-        # Between plateaus: find bounding fractions
-        ν_above = nothing; ν_below = nothing
-        for fi in 1:length(ν_vals)
-            if ν_vals[fi] > ν_B
-                ν_above = ν_vals[fi]
+        # ── Transition region: find bounding plateaus ──
+        ν_hi = nothing;  ν_lo = nothing;  fi_hi = 0;  fi_lo = 0
+        for fi in eachindex(ν_list)
+            if ν_list[fi] > ν_B + hw[fi]
+                ν_hi = ν_list[fi];  fi_hi = fi
             end
-            if ν_vals[fi] < ν_B && ν_below === nothing
-                ν_below = ν_vals[fi]
+            if ν_list[fi] < ν_B - hw[fi] && ν_lo === nothing
+                ν_lo = ν_list[fi];  fi_lo = fi
             end
         end
 
-        # Classical Hall line as fallback
-        if ν_above === nothing || ν_below === nothing
+        if ν_hi !== nothing && ν_lo !== nothing
+            # Semicircle transition between ν_hi and ν_lo
+            σ_hi = ν_hi / RK;  σ_lo = ν_lo / RK
+            σ_mid = (σ_hi + σ_lo) / 2
+            δσ = (σ_hi - σ_lo) / 2
+
+            # Map ν_B to parameter θ ∈ [0, π]
+            edge_hi = ν_hi - hw[fi_hi]
+            edge_lo = ν_lo + hw[fi_lo]
+            t = clamp((edge_hi - ν_B) / max(edge_hi - edge_lo, 1e-10), 0.0, 1.0)
+            θ = π * t
+
+            σ_xy = σ_mid + δσ * cos(θ)
+            σ_xx = abs(δσ) * sin(θ)
+
+            denom = σ_xx^2 + σ_xy^2
+            R_xy[bi] = denom > 1e-30 ? σ_xy / denom : B / (n_e * e)
+            R_xx[bi] = denom > 1e-30 ? σ_xx / denom : 0.0
+        elseif ν_B > ν_list[1]
+            # Above highest fraction: classical Hall + SdH oscillations
             R_xy[bi] = B / (n_e * e)
-            # SdH oscillations for high filling
-            if ν_B > 1
-                τ = mat.m_star * μ_e / e
-                ωc = e * B / mat.m_star
-                dingle = exp(-π / (ωc * τ))
-                thermal = ν_B > 0.5 ? 2π^2 * kB * T / (CONSTANTS.ħ * ωc) : 1e10
-                amp = thermal < 50 ? dingle * thermal / sinh(thermal) : 0.0
-                R_xx[bi] = RK * (1.0 - 4.0 * amp * cos(2π * ν_B)) / ν_B^2 * 0.02
-            else
-                R_xx[bi] = 0.0
-            end
-            continue
-        end
-
-        # Semicircle interpolation (Dykhne-Ruzin)
-        # Parameter t ∈ [0,1]: 0 at ν_above plateau edge, 1 at ν_below edge
-        ν_mid = (ν_above + ν_below) / 2
-        ν_span = ν_above - ν_below
-        t = clamp((ν_above - ν_B) / ν_span, 0.0, 1.0)
-        θ = π * t
-
-        σ_above = ν_above * e^2 / h
-        σ_below = ν_below * e^2 / h
-        σ_mid = (σ_above + σ_below) / 2
-        δσ = (σ_above - σ_below) / 2
-
-        σ_xy = σ_mid + δσ * cos(θ)
-        σ_xx = abs(δσ * sin(θ))
-
-        # Convert conductivity → resistivity
-        denom = σ_xx^2 + σ_xy^2
-        if denom > 1e-30
-            R_xy[bi] = σ_xy / denom
-            R_xx[bi] = σ_xx / denom
+            ωc_τ = e * B * μ_e / (CONSTANTS.ħ * e / (mat.m_star * μ_e) > 0 ? 1.0 : 1.0)
+            τ = mat.m_star * μ_e / e
+            ωc = e * B / mat.m_star
+            X = 2π^2 * kB * T / (CONSTANTS.ħ * ωc)
+            dingle = exp(-π / (ωc * τ))
+            thermal = X > 0.01 ? X / sinh(X) : 1.0
+            R_xx[bi] = abs((B / (n_e * e)) * 0.05 *
+                       (1.0 - 4.0 * dingle * thermal * cos(2π * ν_B)))
         else
+            # Below lowest fraction: classical fallback
             R_xy[bi] = B / (n_e * e)
             R_xx[bi] = 0.0
         end
