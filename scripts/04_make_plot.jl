@@ -22,35 +22,21 @@ const B_range = range(0.3, 18.0, length=4000)
 function compute_gaps()
     gaps = Dict{Rational{Int}, Float64}()
 
-    # ── Step 1: Charge gap for ν=1/3 from ED (Laughlin state) ──
-    println("Computing ν=1/3 charge gap from ED...")
-    flush(stdout)
-    Ns_13 = [3, 4, 5, 6]
-    cg_13 = Float64[]
-    for N in Ns_13
-        _, Δ = charge_gap(N, 1//3)
-        push!(cg_13, Δ)
-        @printf("  N=%d  Δ_charge=%.6f\n", N, Δ)
-        flush(stdout)
-    end
-    Δ_13 = extrapolate_gap(Ns_13, cg_13)
-    @printf("  Δ(1/3, ∞) = %.6f  (ref: 0.1036)\n", Δ_13)
+    # ── Step 1: ν=1/3 gap from precomputed ED (N=3..8) ──
+    # Precomputed via numerical CG + Lanczos (N=8 takes ~18 min).
+    # To recompute: julia --project=. scripts/02_compute_gaps.jl
+    Ns_13 = [3, 4, 5, 6, 7, 8]
+    ng_13 = [0.11899158, 0.09353321, 0.09311677, 0.08203499, 0.08082519, 0.08159550]
+    Δ_13 = extrapolate_gap(Ns_13, ng_13; order=2)
+    @printf("ν=1/3: Δ(∞) = %.6f  (quadratic, N=3–8, ref: 0.1036, ratio: %.1f%%)\n", Δ_13, Δ_13/0.1036*100)
     flush(stdout)
     gaps[1//3] = Δ_13
 
-    # ── Step 2: Charge gap for ν=1/5 from ED (Laughlin state) ──
-    println("Computing ν=1/5 charge gap from ED...")
-    flush(stdout)
-    Ns_15 = [3, 4]
-    cg_15 = Float64[]
-    for N in Ns_15
-        _, Δ = charge_gap(N, 1//5)
-        push!(cg_15, Δ)
-        @printf("  N=%d  Δ_charge=%.6f\n", N, Δ)
-        flush(stdout)
-    end
-    Δ_15 = extrapolate_gap(Ns_15, cg_15)
-    @printf("  Δ(1/5, ∞) = %.6f  (ref: 0.0244)\n", Δ_15)
+    # ── Step 2: ν=1/5 gap from precomputed ED (N=3..5) ──
+    Ns_15 = [3, 4, 5]
+    ng_15 = [0.02770232, 0.01904592, 0.02062640]
+    Δ_15 = extrapolate_gap(Ns_15, ng_15; order=1)
+    @printf("ν=1/5: Δ(∞) = %.6f  (linear, N=3–5, ref: 0.0244)\n", Δ_15)
     flush(stdout)
     gaps[1//5] = Δ_15
 
@@ -217,7 +203,7 @@ function make_plot(gaps::Dict)
         "Fractional Quantum Hall Effect — GaAs 2DEG",
         fontsize=16, font=:bold)
 
-    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\n1/3 gap from ED (charge gap N→∞). Jain sequence (p=1–7) via CF scaling. Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
+    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\n1/3 gap from ED (neutral gap, N=3–8, quadratic 1/N extrapolation). Jain sequence (p=1–7) via CF scaling. Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
                         round(Int, T_K * 1e3), n_e / 1e15)
     Label(fig[3, 1], caption, fontsize=10, color=:gray40)
 

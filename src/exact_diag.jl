@@ -18,7 +18,7 @@ function compute_spectrum(H; nev::Int=5)
     D = size(H, 1)
     nev = min(nev, D)
 
-    if D <= 1500
+    if D <= 4000
         vals = eigvals(Matrix(H))
         return sort(real.(vals))[1:nev], nothing
     else
@@ -101,14 +101,29 @@ struct GapTable
 end
 
 """
-    extrapolate_gap(Ns, gaps) → Δ(∞)
+    extrapolate_gap(Ns, gaps; order=0) → Δ(∞)
 
-Linear extrapolation: Δ(N) = Δ(∞) + a/N.  Least-squares fit.
+Finite-size extrapolation: Δ(N) = Δ(∞) + a₁/N + a₂/N² + ⋯
+Least-squares fit of polynomial in 1/N.
+
+`order` selects the highest power of 1/N:
+  - `order=0`: auto-select (linear for ≤3 points, quadratic for ≥4).
+  - `order=1`: linear 1/N only.
+  - `order=2`: include 1/N² (captures even-odd shell effects).
 """
-function extrapolate_gap(Ns::Vector{Int}, gaps::Vector{Float64})
-    length(Ns) >= 2 || return gaps[1]
-    # Fit Δ = c₀ + c₁/N via least squares
-    A = hcat(ones(length(Ns)), 1.0 ./ Ns)
+function extrapolate_gap(Ns::Vector{Int}, gaps::Vector{Float64}; order::Int=0)
+    n = length(Ns)
+    n >= 2 || return gaps[1]
+
+    # Auto-select: quadratic when we have enough data, linear otherwise
+    if order == 0
+        order = n >= 4 ? 2 : 1
+    end
+    order = min(order, n - 1)   # can't fit more params than data points
+
+    # Fit Δ(N) = c₀ + c₁/N + c₂/N² + ... via least squares
+    x = 1.0 ./ Ns
+    A = hcat([x .^ p for p in 0:order]...)
     c = A \ gaps
-    return c[1]   # Δ(∞)
+    return c[1]   # Δ(∞) = c₀
 end

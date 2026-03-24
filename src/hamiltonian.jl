@@ -8,7 +8,7 @@
 #   P01: Haldane, PRL 51, 605 (1983)
 #   P04: Fano et al., PRB 34, 2670 (1986)
 
-using SparseArrays, LinearAlgebra, WignerSymbols
+using SparseArrays, LinearAlgebra
 
 export build_hamiltonian
 

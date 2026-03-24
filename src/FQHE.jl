@@ -15,6 +15,9 @@ include("monopole_harmonics.jl")
 # Many-body Fock space construction
 include("hilbert_space.jl")
 
+# Numerical Clebsch-Gordan coefficients (replaces WignerSymbols.jl)
+include("clebsch_gordan.jl")
+
 # Haldane pseudopotentials for Coulomb interaction
 include("pseudopotentials.jl")
 
