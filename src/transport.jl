@@ -51,6 +51,18 @@ function compute_transport(B_range::AbstractVector, n_e::Real,
         push!(gap_K, Δ_K);   push!(hw, w)
     end
 
+    # Cap half-widths so adjacent plateaus don't swallow transition regions.
+    # Without this, closely-spaced Jain fractions near ν=1/2 overlap and
+    # produce no R_xx peaks between them.
+    for fi in eachindex(ν_list)
+        min_dist = Inf
+        for fj in eachindex(ν_list)
+            fi == fj && continue
+            min_dist = min(min_dist, abs(ν_list[fi] - ν_list[fj]))
+        end
+        hw[fi] = min(hw[fi], 0.4 * min_dist)
+    end
+
     R_xy = similar(B_range, Float64)
     R_xx = similar(B_range, Float64)
 

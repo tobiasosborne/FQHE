@@ -1,86 +1,85 @@
 # HANDOFF — FQHE Project
 
-**Date:** 2026-03-23
-**Status:** Phase A COMPLETE, Phase B COMPLETE, Phase C MVP COMPLETE (plot generated).
+**Date:** 2026-03-24
+**Status:** Phase A–C COMPLETE. ED pipeline validated, Jain sequence to p=7, plot with ab initio gaps.
 
-## What was done this session
+## What was done (2026-03-24 session)
 
-### 1. New machine setup
-- Julia 1.12.5 with all deps installed + precompiled
-- `af` CLI confirmed working, proof tree intact (31 nodes)
-- 24 papers downloaded (15 arXiv via curl, 9 APS via Playwright + TIB VPN)
-- fetch_aps_papers.mjs rewritten for headed persistent-context Playwright
+### 1. ED pipeline improvements
+- **exact_diag.jl**: Fixed `_lowest_energy` sector scanning — proper parity stepping,
+  VJ computed once, returns from first non-empty sector (rotational invariance).
+- **Charge gap for ν=1/3**: Computed at N=3,4,5,6, extrapolated to N→∞ via Δ(N)=Δ(∞)+a/N.
+  Result: Δ(1/3,∞) = 0.075 (published ref: 0.1036, ratio 0.72 — linear 1/N undershoots
+  without quadratic correction).
+- **Charge gap for Jain fractions**: NEGATIVE at all accessible N for ν=2/5, 3/7.
+  Root cause: on small spheres (N≤8), the quasiparticle state at 2S−1 falls into a
+  different topological sector. This is a known finite-size artifact for non-Laughlin fractions.
 
-### 2. Phase C1: Foundations fixed
-- **pseudopotentials.jl**: Replaced wrong CG-sum formula with Fano eq. 25 closed-form binomial.
-  Uses BigInt to avoid overflow. Validated V_J values produce correct energies.
-- **sphere.jl**: Fixed integer division bug. Now uses rational arithmetic (`N // ν`).
-  shift(ν) = denominator for all Jain fractions + conjugates.
-- **hilbert_space.jl**: Fixed half-integer Lz bug. Now works with `twoLz` (integer)
-  everywhere. Added `state_to_index` Dict for O(1) Hamiltonian assembly.
-- **monopole_harmonics.jl**: Simplified to orbital_m(i, twoS) helper.
+### 2. CF gap scaling
+- **composite_fermion.jl**: Implemented `cf_gap_scaling(Δ_anchor, p; r=0.56)`.
+  Geometric decay: Δ(p/(2p+1)) = Δ(1/3) × 0.56^(p−1).
+  Calibrated from published Δ(2/5)/Δ(1/3). Matches p=3,4 within 10%.
+- Jain principal sequence computed to p=7 (7/15), with particle-hole conjugates.
 
-### 3. Phase C2: Hamiltonian + ED validated against Fano (1986)
-- **hamiltonian.jl**: Full sparse Coulomb Hamiltonian assembly.
-  Precomputes CG-based two-body matrix elements grouped by total M.
-  Fermion signs via bit-manipulation. Hermitian wrapper for exact symmetry.
-- **exact_diag.jl**: Dense eigvals for dim ≤ 1500, KrylovKit Lanczos otherwise.
-  Neutral gap + charge gap extraction. Linear 1/N extrapolation.
+### 3. Transport model fix
+- **transport.jl**: Added neighbor-aware plateau width capping. Each plateau's
+  half-width is capped at 40% of the distance to its nearest neighbor. Without this,
+  closely-spaced Jain fractions near ν=1/2 overlap and produce no R_xx peaks.
 
-**Validation (ν=1/3 neutral gap, Fano PRB 34 2670 Table IV):**
-| N | dim(Lz=0) | Δ_exc (ours) | Δ_exc (Fano) |
-|---|-----------|-------------|-------------|
-| 3 | 5         | 0.118992    | 0.118990    |
-| 4 | 18        | 0.093533    | 0.093530    |
-| 5 | 73        | 0.093117    | 0.093110    |
-| 6 | 338       | 0.082035    | 0.082040    |
+### 4. Plot updated
+- **04_make_plot.jl**: Now computes gaps from ED (ν=1/3 charge gap as anchor) +
+  CF scaling for Jain hierarchy, instead of hardcoded reference values.
+- Fractions shown: 1/3, 2/5, 3/7, 4/9, 5/11, 6/13, 7/15, 2/3, 3/5, 4/7, 5/9,
+  6/11, 7/13, 1/5, plus integers 1–4.
+- Fine staircase structure visible near ν=1/2 with R_xx peaks between all fractions.
 
-Match to 5 significant figures.
+### 5. Performance findings
+- **WignerSymbols.jl CG bottleneck**: CG coefficient computation becomes very slow
+  for twoS > 15 (S > 7.5). N=7 at ν=1/3 (twoS=18) takes ~170s for neutral gap,
+  ~236s for charge gap. N=8 (twoS=21) takes 30+ minutes. The bottleneck is exact
+  rational arithmetic inside WignerSymbols.jl, not the Lanczos diagonalization.
+- **Practical ceiling**: twoS ≤ 15 for fast computation (~1s). This limits:
+  ν=1/3 to N≤6, ν=2/5 to N≤8, ν=1/5 to N≤4.
 
-### 4. Phase C3: Transport + plot
-- **transport.jl**: Semicircle law (Dykhne-Ruzin) for transitions, activated
-  R_xx at plateau centers, SdH oscillations at high filling.
-- **04_make_plot.jl**: Two-panel CairoMakie figure. Uses reference gap values
-  (Fano 1986 + Balram 2018) validated against our ED.
-- **fqhe_plot.pdf/png**: The iconic plot is generated.
+### 6. Known issues / next steps
 
-### 5. Known issues / next steps
+**Charge gap for Jain fractions:** The simple "add/remove one flux" charge gap
+is negative for ν=2/5, 3/7 at all accessible N. Proper Jain charge gaps on the
+sphere require CF wavefunctions to define quasihole/quasiparticle excitations.
+Alternative: use neutral gap at larger N once CG bottleneck is resolved.
 
-**Charge gap sector scanning:** The charge_gap() function doesn't properly
-scan all Lz sectors for quasihole/quasiparticle states. The quasihole ground
-state is at L = N/2, not Lz=0. Fix: scan all Lz sectors from 0 to N×twoS/2.
-Neutral gaps work perfectly and are used for the plot.
+**CG coefficient performance:** Replace WignerSymbols.jl with a numerical (Float64)
+CG library, or cache CG coefficients across Hamiltonian builds. This would unlock
+N=8–10 for all fractions (~10× more data for extrapolation).
 
-**N=8+ ED performance:** Hamiltonian assembly + diag for N=8 (dim≈8500) takes
-several minutes due to CG coefficient computation. Consider caching CG values
-or using a faster CG library.
-
-**Transport model polish:** The semicircle transitions could be smoother.
-The SdH oscillation formula needs tuning. Plateau widths are phenomenological
-and somewhat arbitrary.
+**Extrapolation accuracy:** Linear 1/N extrapolation from N=3–6 gives ~72% of
+published gaps. Adding quadratic 1/N² term requires N=8+ data points.
 
 **Future extensions (from PRD):**
-- ν=5/2 via DMRG/iTensors.jl
+- Finite well width corrections (Peterson et al.) — 10–20% improvement
+- LL mixing corrections (Faugno et al.) — biggest systematic error
+- ν=5/2 via DMRG/ITensors.jl
 - Chalker-Coddington network model for microscopic plateau widths
-- Finite well width corrections (Peterson et al.)
-- LL mixing corrections (Faugno et al.)
 
 ## How to run
 
 ```bash
-# Validate ED:
+# Validate ED (should give ≈ 0.082035):
 julia --project=. -e '
 using FQHE
 twoS = sphere_flux(6, 1//3)
 VJ = coulomb_pseudopotentials(twoS)
 basis = enumerate_fock_states(6, twoS; twoLz=0)
 E0, gap = neutral_gap(basis, VJ)
-println("N=6 ν=1/3: Δ_exc = $gap")  # should be ≈ 0.082035
+println("N=6 ν=1/3: Δ_exc = $gap")
 '
 
-# Generate plot:
+# Generate plot (computes ED gaps + CF scaling, ~5s after JIT):
 julia --project=. scripts/04_make_plot.jl
 # → fqhe_plot.pdf, fqhe_plot.png
+
+# Full gap pipeline (charge + neutral, ~7 min for N up to 8 at 1/3):
+julia --project=. scripts/02_compute_gaps.jl
 ```
 
 ## Prerequisites

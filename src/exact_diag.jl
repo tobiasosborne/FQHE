@@ -66,25 +66,29 @@ function charge_gap(N::Int, ν::Rational; nev::Int=5)
     return E0 / N, ε_plus + ε_minus
 end
 
-"""Find absolute ground state energy, scanning Lz sectors near 0."""
-function _lowest_energy(N::Int, twoS::Int)
-    # Check if Lz=0 is allowed: N*twoS must be even for twoLz=0
-    best_E = Inf
-    for twoLz_try in [0, 1, -1]
-        # Parity check: total 2Lz = Σ(2i - twoS) = 2Σi - N*twoS
-        # has same parity as N*twoS. So twoLz must have same parity.
-        iseven(N * twoS - twoLz_try) || continue
+"""
+    _lowest_energy(N, twoS) → E₀
 
-        basis = enumerate_fock_states(N, twoS; twoLz=twoLz_try)
+Absolute ground state energy for N particles at monopole strength twoS.
+Uses the smallest-|Lz| sector with correct parity.  By rotational invariance,
+this sector contains components of ALL angular momentum multiplets L ≥ |Lz|,
+so its lowest eigenvalue IS the absolute ground state energy.
+"""
+function _lowest_energy(N::Int, twoS::Int)
+    # 2Lz must have same parity as N*twoS
+    parity = mod(N * twoS, 2)
+    twoLz_max = N * twoS - N * (N - 1)   # all N particles in highest orbitals
+    VJ = coulomb_pseudopotentials(twoS)
+
+    for twoLz in parity:2:twoLz_max
+        basis = enumerate_fock_states(N, twoS; twoLz=twoLz)
         isempty(basis.states) && continue
 
-        VJ = coulomb_pseudopotentials(twoS)
         H = build_hamiltonian(basis, VJ)
         vals, _ = compute_spectrum(H; nev=1)
-        best_E = min(best_E, vals[1])
+        return vals[1]
     end
-    best_E < Inf || error("No states found for N=$N, twoS=$twoS")
-    return best_E
+    error("No states found for N=$N, twoS=$twoS")
 end
 
 """Result of gap computation for one filling fraction."""
