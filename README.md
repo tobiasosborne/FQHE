@@ -75,6 +75,10 @@ test/                      # Unit tests
 
 The charge gap extrapolation undershoots due to linear $1/N$ fitting with only $N = 3$-$6$ data points; quadratic correction requires $N \geq 8$, currently limited by the CG coefficient bottleneck.
 
+## Experimental comparison
+
+The gray curves overlay real transport data from a GaAs 2D hole gas ([Wang et al., PNAS 2023](https://doi.org/10.1073/pnas.2314212120), CC-BY-4.0). Since the experimental sample has a different carrier density ($n_h = 1.55 \times 10^{11}$ cm$^{-2}$ vs our $n_e = 1.0 \times 10^{11}$ cm$^{-2}$), the magnetic field axis is rescaled by the density ratio so that filling factors align. The FQHE is topological — quantized Hall plateaux and $R_{xx}$ minima appear at the same filling fractions regardless of carrier type, confirming the universality of the effect.
+
 ## Requirements
 
 - Julia 1.10+ (tested with 1.12)

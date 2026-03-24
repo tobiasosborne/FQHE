@@ -1,7 +1,7 @@
 # HANDOFF — FQHE Project
 
 **Date:** 2026-03-24
-**Status:** Phase A–C COMPLETE. ED pipeline validated, Jain sequence to p=7, plot with ab initio gaps.
+**Status:** Phase A–C COMPLETE + experimental overlay. ED pipeline validated, Jain sequence to p=7, plot with ab initio gaps and experimental comparison.
 
 ## What was done (2026-03-24 session)
 
@@ -41,7 +41,22 @@
 - **Practical ceiling**: twoS ≤ 15 for fast computation (~1s). This limits:
   ν=1/3 to N≤6, ν=2/5 to N≤8, ν=1/5 to N≤4.
 
-### 6. Known issues / next steps
+### 6. Experimental data overlay
+- **Source**: Wang et al., PNAS 120, e2314212120 (2023), CC-BY-4.0 (Zenodo record 10279058).
+  GaAs 2D hole gas, n_h ≈ 1.55×10¹¹ cm⁻², ultra-high mobility.
+- **Processing**: B rescaled by density ratio (×1.0/1.55 = ×0.645) to align filling factors
+  with our electron simulation (n_e = 1.0×10¹¹ cm⁻²). Stitched low-field (0–9T) and
+  high-field (9–16T) panels from Fig 4. Smoothed with 15-point moving average, downsampled
+  to ~3600 points. R_xy from Fig 3a (1/3 plateau region).
+- **Result**: Experimental R_xx overlay (gray) shows SdH oscillations and FQHE minima
+  that align with theory predictions. R_xy confirms universal 1/3 plateau quantization.
+- **Caveat**: Hole system — different effective mass/g-factor vs electrons, but FQHE
+  topology is universal. Filling-factor positions match; gap magnitudes differ.
+- **Other datasets downloaded** (in data/, gitignored):
+  - ETH Enkner et al. (Nature 2025) — GaAs 2DEG with cavity coupling, 193MB
+  - Fu et al. (Nat Comms 2019) — confined 2DEG, nu=1–2 region only
+
+### 7. Known issues / next steps
 
 **Charge gap for Jain fractions:** The simple "add/remove one flux" charge gap
 is negative for ν=2/5, 3/7 at all accessible N. Proper Jain charge gaps on the
@@ -54,6 +69,10 @@ N=8–10 for all fractions (~10× more data for extrapolation).
 
 **Extrapolation accuracy:** Linear 1/N extrapolation from N=3–6 gives ~72% of
 published gaps. Adding quadratic 1/N² term requires N=8+ data points.
+
+**Experimental comparison:** Current overlay uses hole-system data with B rescaling.
+Better match would come from digitizing classic electron-system figures (Pan et al. 2003,
+Eisenstein & Stormer 1990) via WebPlotDigitizer — no open data exists for those papers.
 
 **Future extensions (from PRD):**
 - Finite well width corrections (Peterson et al.) — 10–20% improvement
