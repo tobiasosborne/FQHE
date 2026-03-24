@@ -4,7 +4,7 @@ Ab initio simulation of the Fractional Quantum Hall Effect in GaAs, from Haldane
 
 ![Fractional Quantum Hall Effect — GaAs 2DEG](fqhe_plot.png)
 
-*Hall resistance (R_xy) and longitudinal resistance (R_xx) for a GaAs 2DEG at T = 50 mK. Fractional plateaux at the Jain principal sequence up to p = 7 (filling factors 1/3, 2/5, 3/7, 4/9, 5/11, 6/13, 7/15 and particle-hole conjugates) are computed from first principles — the 1/3 gap is extracted via exact diagonalization on the Haldane sphere, and higher fractions follow from composite-fermion scaling.*
+*Hall resistance (R_xy, blue) and longitudinal resistance (R_xx, red) for a GaAs 2DEG at T = 50 mK. Fractional plateaux at the Jain principal sequence up to p = 7 are computed from first principles — the 1/3 gap is extracted via exact diagonalization on the Haldane sphere, higher fractions follow from composite-fermion scaling. Gray: experimental data from a GaAs 2D hole gas ([Wang et al., PNAS 2023](https://doi.org/10.1073/pnas.2314212120), CC-BY-4.0), with B rescaled to align filling factors.*
 
 ## Overview
 

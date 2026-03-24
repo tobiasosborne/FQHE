@@ -6,9 +6,11 @@
 # ν=1/3 gap from ab initio ED (charge gap, extrapolated N→∞).
 # Jain hierarchy from CF geometric scaling anchored to ED.
 # Plateau widths and transition shapes are semi-phenomenological.
+# Experimental overlay: Wang et al., PNAS 120, e2314212120 (2023), CC-BY-4.0.
 
 using FQHE
 using CairoMakie
+using DelimitedFiles
 using Printf
 
 # ── Sample parameters (close to original Tsui-Störmer experiment) ──
@@ -78,6 +80,44 @@ function compute_gaps()
     return gaps
 end
 
+function load_exp_data()
+    datadir = joinpath(@__DIR__, "..", "data")
+    exp_rxx_path = joinpath(datadir, "exp_rxx_rescaled.csv")
+    exp_rxy_path = joinpath(datadir, "exp_rxy_rescaled.csv")
+
+    B_exp_xx = Float64[]
+    R_exp_xx = Float64[]
+    B_exp_xy = Float64[]
+    R_exp_xy = Float64[]
+
+    if isfile(exp_rxx_path)
+        data = readdlm(exp_rxx_path, ',', skipstart=1)
+        B_exp_xx = data[:, 1]
+        R_exp_xx = data[:, 2]
+        # Normalize to [0, 1]
+        rmax = quantile_approx(R_exp_xx, 0.98)
+        R_exp_xx = clamp.(R_exp_xx ./ rmax, 0.0, 1.0)
+        bmin, bmax = extrema(B_exp_xx)
+        println("  Loaded experimental Rxx: $(length(B_exp_xx)) points, B=$(round(bmin, digits=1))-$(round(bmax, digits=1))")
+    end
+
+    if isfile(exp_rxy_path)
+        data = readdlm(exp_rxy_path, ',', skipstart=1)
+        B_exp_xy = data[:, 1]
+        R_exp_xy = data[:, 2]  # already in h/e² units
+        println("  Loaded experimental Rxy: $(length(B_exp_xy)) points, B=$(round.(extrema(B_exp_xy), digits=1))")
+    end
+
+    return B_exp_xx, R_exp_xx, B_exp_xy, R_exp_xy
+end
+
+# Approximate quantile without StatsBase
+function quantile_approx(x, p)
+    s = sort(x)
+    idx = clamp(round(Int, p * length(s)), 1, length(s))
+    return s[idx]
+end
+
 function make_plot(gaps::Dict)
     fractions = FractionData[]
 
@@ -101,6 +141,11 @@ function make_plot(gaps::Dict)
     R_xx_max = maximum(abs.(R_xx))
     R_xx_norm = R_xx_max > 0 ? R_xx ./ R_xx_max : R_xx
 
+    # Load experimental data
+    println("Loading experimental data...")
+    flush(stdout)
+    B_exp_xx, R_exp_xx, B_exp_xy, R_exp_xy = load_exp_data()
+
     fig = Figure(size=(800, 900), fontsize=14)
 
     # Top panel: R_xy
@@ -115,7 +160,14 @@ function make_plot(gaps::Dict)
     B_arr = collect(B_range)
     R_classical = B_arr ./ (n_e * CONSTANTS.e) ./ RK
     lines!(ax1, B_arr, R_classical, color=:gray, linestyle=:dash, linewidth=1)
-    lines!(ax1, B_arr, R_xy_norm, color=:blue, linewidth=2)
+
+    # Experimental R_xy overlay (behind theory)
+    if !isempty(B_exp_xy)
+        lines!(ax1, B_exp_xy, R_exp_xy, color=(:gray50, 0.7), linewidth=3,
+               label="Experiment")
+    end
+
+    lines!(ax1, B_arr, R_xy_norm, color=:blue, linewidth=2, label="Theory (ED + CF)")
 
     # Annotate fractions
     frac_labels = [
@@ -147,13 +199,25 @@ function make_plot(gaps::Dict)
         ylabel=L"R_{xx}\ [\mathrm{a.u.}]",
         limits=(extrema(B_range), nothing),
     )
-    lines!(ax2, B_arr, R_xx_norm, color=:red, linewidth=2)
+
+    # Experimental R_xx overlay (behind theory)
+    if !isempty(B_exp_xx)
+        lines!(ax2, B_exp_xx, R_exp_xx, color=(:gray50, 0.5), linewidth=2.5,
+               label="Expt (Wang et al. 2023)")
+    end
+
+    lines!(ax2, B_arr, R_xx_norm, color=:red, linewidth=2, label="Theory")
+
+    # Legend in R_xx panel
+    if !isempty(B_exp_xx)
+        axislegend(ax2, position=:lt, framevisible=false, labelsize=10)
+    end
 
     Label(fig[0, 1],
         "Fractional Quantum Hall Effect — GaAs 2DEG",
         fontsize=16, font=:bold)
 
-    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\n1/3 gap from ED (charge gap N→∞). Jain sequence (p=1–7) via CF scaling. Widths phenomenological.",
+    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\n1/3 gap from ED (charge gap N→∞). Jain sequence (p=1–7) via CF scaling. Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
                         round(Int, T_K * 1e3), n_e / 1e15)
     Label(fig[3, 1], caption, fontsize=10, color=:gray40)
 

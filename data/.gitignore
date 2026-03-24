@@ -1,0 +1,11 @@
+# Raw downloads (large, can be re-fetched)
+*.xlsx
+*.zip
+*.pdf
+data_repository/
+
+# Intermediate processing files
+exp_rxx.csv
+exp_rxx_bottom.csv
+exp_rxx_top.csv
+exp_rxy.csv
