@@ -53,15 +53,53 @@ function compute_gaps()
         flush(stdout)
     end
 
-    # ── Step 4: Particle-hole conjugates ──
+    # ── Step 4: Particle-hole conjugates (LLL) ──
     ph_map = [(2//3, 1//3), (3//5, 2//5), (4//7, 3//7),
               (5//9, 4//9), (6//11, 5//11), (7//13, 6//13)]
     for (ν_conj, ν_orig) in ph_map
         haskey(gaps, ν_orig) || continue
         gaps[ν_conj] = gaps[ν_orig]
     end
-    println("  Conjugates: Δ(ν) = Δ(1−ν)")
+    println("  LLL conjugates: Δ(ν) = Δ(1−ν)")
     flush(stdout)
+
+    # ── Step 5: Second Landau level fractions (PUBLISHED REFERENCE GAPS) ──
+    # These are NOT computed by our pipeline. They use effective 2nd-LL
+    # pseudopotentials which differ from LLL Coulomb. Values from:
+    #   ν=5/2:  Morf PRB 58 R1465 (1998); DMRG Zaletel et al. PRB 91 (2015)
+    #   ν=7/3:  Morf & d'Ambrumenil PRL 74 5116 (1995)
+    #   ν=12/5: Rezayi & Read PRB 79 075306 (2009)
+    # TODO: replace with own DMRG calculations via ITensors.jl
+    println("Second LL fractions (published reference gaps)...")
+    flush(stdout)
+    sll_gaps = [
+        (5//2,  0.025),   # Moore-Read / Pfaffian state
+        (7//3,  0.045),   # Laughlin-like in 2nd LL
+        (8//3,  0.045),   # p-h conjugate of 7/3
+        (12//5, 0.015),   # Jain 2/5 in 2nd LL
+        (13//5, 0.015),   # p-h conjugate of 12/5
+    ]
+    for (ν, Δ) in sll_gaps
+        gaps[ν] = Δ
+        @printf("  ν=%-5s  Δ=%.4f  [published ref]\n", ν, Δ)
+        flush(stdout)
+    end
+
+    # ── Step 6: Reverse-flux Jain fractions (LLL, published refs) ──
+    # ν = p/(2p−1) sequence: weaker states, very small gaps.
+    #   Balram et al. PRL 115 186805 (2015)
+    # TODO: compute via ED once second-LL machinery is in place
+    println("Reverse-flux Jain fractions (published reference gaps)...")
+    flush(stdout)
+    rev_jain = [
+        (2//7,  0.008),   # reverse-flux p=2
+        (3//11, 0.003),   # reverse-flux p=3
+    ]
+    for (ν, Δ) in rev_jain
+        gaps[ν] = Δ
+        @printf("  ν=%-5s  Δ=%.4f  [published ref]\n", ν, Δ)
+        flush(stdout)
+    end
 
     return gaps
 end
@@ -155,20 +193,33 @@ function make_plot(gaps::Dict)
 
     lines!(ax1, B_arr, R_xy_norm, color=:blue, linewidth=2, label="Theory (ED + CF)")
 
-    # Annotate fractions
-    frac_labels = [
+    # Annotate fractions — red = ab initio (ED/CF), blue = published reference
+    ab_initio_labels = [
         (1//3, "1/3"), (2//5, "2/5"), (3//7, "3/7"), (4//9, "4/9"), (5//11, "5/11"),
         (6//13, "6/13"), (7//15, "7/15"),
         (2//3, "2/3"), (3//5, "3/5"), (4//7, "4/7"), (5//9, "5/9"),
         (6//11, "6/11"), (7//13, "7/13"),
         (1//5, "1/5"),
     ]
-    for (ν, label) in frac_labels
+    ref_labels = [
+        (5//2, "5/2"), (7//3, "7/3"), (8//3, "8/3"),
+        (12//5, "12/5"), (13//5, "13/5"),
+        (2//7, "2/7"), (3//11, "3/11"),
+    ]
+    for (ν, label) in ab_initio_labels
         haskey(gaps, ν) || continue
         B_ν = n_e * CONSTANTS.h / (CONSTANTS.e * Float64(ν))
         if first(B_range) < B_ν < last(B_range)
             text!(ax1, B_ν, Float64(1//ν) + 0.06, text=label,
                   fontsize=9, align=(:center, :bottom), color=:red)
+        end
+    end
+    for (ν, label) in ref_labels
+        haskey(gaps, ν) || continue
+        B_ν = n_e * CONSTANTS.h / (CONSTANTS.e * Float64(ν))
+        if first(B_range) < B_ν < last(B_range)
+            text!(ax1, B_ν, Float64(1//ν) + 0.06, text=label,
+                  fontsize=9, align=(:center, :bottom), color=(:blue, 0.7))
         end
     end
     for n in 1:3
@@ -203,7 +254,7 @@ function make_plot(gaps::Dict)
         "Fractional Quantum Hall Effect — GaAs 2DEG",
         fontsize=16, font=:bold)
 
-    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\n1/3 gap from ED (neutral gap, N=3–8, quadratic 1/N extrapolation). Jain sequence (p=1–7) via CF scaling. Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
+    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\nRed labels: ab initio (ED + CF scaling). Blue labels: published reference gaps (2nd LL, reverse-flux Jain). Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
                         round(Int, T_K * 1e3), n_e / 1e15)
     Label(fig[3, 1], caption, fontsize=10, color=:gray40)
 
