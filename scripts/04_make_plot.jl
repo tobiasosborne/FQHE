@@ -185,22 +185,13 @@ function make_plot(gaps::Dict)
     R_classical = B_arr ./ (n_e * CONSTANTS.e) ./ RK
     lines!(ax1, B_arr, R_classical, color=:gray, linestyle=:dash, linewidth=1)
 
-    # Digitized Störmer Fig. 18 R_xy overlay (behind theory)
-    stormer_path = joinpath(@__DIR__, "..", "data", "stormer_rxy_rescaled.csv")
-    if isfile(stormer_path)
-        sd = readdlm(stormer_path, ',', skipstart=1)
-        lines!(ax1, sd[:, 1], sd[:, 2], color=(:gray50, 0.6), linewidth=3,
-               label="Störmer (RMP 1999, rescaled)")
-    end
-
-    # Wang et al. R_xy overlay (1/3 plateau region only)
+    # Experimental R_xy overlay (behind theory)
     if !isempty(B_exp_xy)
-        lines!(ax1, B_exp_xy, R_exp_xy, color=(:orange, 0.7), linewidth=2.5,
-               label="Wang et al. (PNAS 2023)")
+        lines!(ax1, B_exp_xy, R_exp_xy, color=(:gray50, 0.7), linewidth=3,
+               label="Experiment")
     end
 
     lines!(ax1, B_arr, R_xy_norm, color=:blue, linewidth=2, label="Theory (ED + CF)")
-    axislegend(ax1, position=:lt, framevisible=false, labelsize=9)
 
     # Annotate fractions — red = ab initio (ED/CF), blue = published reference
     ab_initio_labels = [
@@ -263,7 +254,7 @@ function make_plot(gaps::Dict)
         "Fractional Quantum Hall Effect — GaAs 2DEG",
         fontsize=16, font=:bold)
 
-    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\nRed labels: ab initio (ED + CF). Blue labels: published reference gaps (2nd LL). Gray: Störmer RMP 1999 Fig. 18 (digitized, B rescaled).\nOrange: Wang et al. PNAS 2023 (2D hole gas). R_xx: red = theory, gray = experiment.",
+    caption = @sprintf("T = %d mK,  nₑ = %.1f×10¹¹ cm⁻²,  μ = 10⁶ cm²/Vs\nRed labels: ab initio (ED + CF scaling). Blue labels: published reference gaps (2nd LL, reverse-flux Jain). Widths phenomenological.\nGray: experimental data (Wang et al., PNAS 2023, 2D hole gas, B rescaled to match filling factors).",
                         round(Int, T_K * 1e3), n_e / 1e15)
     Label(fig[3, 1], caption, fontsize=10, color=:gray40)
 
