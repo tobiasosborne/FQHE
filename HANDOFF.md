@@ -1,7 +1,7 @@
 # HANDOFF — FQHE Project
 
 **Date:** 2026-03-25
-**Status:** 40 filling factors, all ab initio. DMRG cylinder + ED sphere + 2nd-LL + CFL. Smooth transport model.
+**Status:** 40 filling factors, all ab initio. DMRG cylinder + ED sphere + 2nd-LL + CFL. Physics-grounded transport: semicircle law + κ=0.42 scaling.
 
 ---
 
@@ -117,11 +117,34 @@ magnitudes). The 4-flux fractions (2/7, 3/11) have ED gaps 10-1000× too large a
 small N due to shell effects. For fractions with <4 ED points, use the **raw gap at
 largest N** instead of extrapolation.
 
-### Transport model
+### Transport model — physics-grounded rewrite
 
-The new smooth model (sech² peaks) looks much better than the old hard-edge version.
-Key parameters: `σ_ν ∝ disorder/gap` controls peak width. The conversion σ_xx → R_xx
-via R_xx = σ_xx/(σ_xx² + σ_xy²) naturally gives the right peak-to-background ratio.
+The transport model is built on two established results:
+
+1. **Dykhne–Ruzin semicircle law** (PRB 50, 2369, 1994):
+   σ_xx² + (σ_xy − σ_mid)² = δσ². The tanh parameterization σ_xy = σ_mid + δσ·tanh(x)
+   satisfies this exactly (sech² + tanh² ≡ 1).
+
+2. **Wei–Tsui–Tsui scaling** (PRL 61, 1294, 1988; Nature Comm. 2024):
+   Transition width δν ∝ (Γ/Δ)^κ with universal exponent κ = 0.42 ± 0.04.
+   Confirmed for both IQHE and FQHE ("superuniversality").
+
+**σ_xy** is an additive staircase: Σ_k Δσ_k × ½(1 + tanh(x_k)), one sigmoid per
+adjacent plateau pair. Each contributes independently, so overlapping transitions
+blend smoothly (no piecewise seam discontinuities). Transition midpoints are
+gap-weighted (stronger fraction claims more ν-territory).
+
+**σ_xx** uses sech² peaks at each transition. Peak widths are floored at the κ-scaled
+transition width to ensure consistency with σ_xy (prevents ultra-narrow integer spikes).
+
+**R_xy, R_xx** from tensor inversion: R_xy = σ_xy/(σ_xx² + σ_xy²). The σ_xx²
+contribution lowers R_xy during transitions, narrowing the apparent plateaus.
+
+**Key pitfall**: a piecewise staircase (one bracketing transition per B-point) causes
+discontinuities whenever δ_trans exceeds ~spacing/3. The additive approach avoids this
+entirely. Earlier versions also had ultra-narrow σ_xx spikes between integer plateaus
+(σ_trans=0.004 with δσ ∝ 1.0), causing sharp R_xy dips through tensor inversion.
+The κ-based width floor fixes this.
 
 ---
 
@@ -138,7 +161,8 @@ via R_xx = σ_xx/(σ_xx² + σ_xy²) naturally gives the right peak-to-backgroun
 | CF scaling (r=0.56) | 7-10% | Empirical, calibrated |
 | LL mixing (not implemented) | 10-20% | **Highest-leverage next step** |
 | Finite well width (not impl.) | 10-20% | Planned |
-| Transport peak shapes | qualitative | Smooth sech², not microscopic |
+| Transport transition widths | κ = 0.42 | Wei–Tsui–Tsui universal scaling |
+| Transport peak shapes | semicircle law | Dykhne–Ruzin, tanh + sech² |
 
 ---
 

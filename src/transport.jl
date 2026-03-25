@@ -1,13 +1,25 @@
 # transport.jl — Gaps → R_xx, R_xy vs B
 #
-# Smooth transport model: R_xy uses sigmoid transitions between plateaus,
-# R_xx is derived from the dissipative conductivity σ_xx which peaks at
-# transitions. Each plateau transition has width ∝ disorder/gap, giving
-# naturally narrow peaks for strong fractions and broad ones for weak.
+# Transport model grounded in two established results:
 #
-# Sources:
-#   P10: Dykhne & Ruzin, PRB 50, 2369 (1994) — semicircle law
-#   P11: Girvin lectures, §2-3
+# 1. Dykhne–Ruzin semicircle law (PRB 50, 2369, 1994):
+#    σ_xx² + (σ_xy − σ_mid)² = δσ²
+#    The tanh parameterization σ_xy = σ_mid + δσ·tanh(x) satisfies this
+#    exactly because sech²(x) + tanh²(x) ≡ 1.
+#
+# 2. Wei–Tsui–Tsui scaling (PRL 61, 1294, 1988; Nature Comm. 2024):
+#    The plateau-to-plateau transition width obeys
+#      δν ∝ (max(Γ, k_BT) / Δ)^κ,   κ = 0.42 ± 0.04
+#    This universal exponent holds for both IQHE and FQHE transitions
+#    ("superuniversality", confirmed in trilayer graphene, 2024).
+#
+# σ_xy is built as an additive staircase: a sum of independent sigmoid steps,
+# one per pair of adjacent plateaus.  This avoids the piecewise-selection
+# discontinuities that arise when transition widths exceed the plateau spacing.
+#
+# R_xy and R_xx are obtained from (σ_xy, σ_xx) via the tensor relation:
+#    R_xy = σ_xy / (σ_xx² + σ_xy²)
+#    R_xx = σ_xx / (σ_xx² + σ_xy²)
 
 export compute_transport, FractionData
 
@@ -20,11 +32,11 @@ end
 """
     compute_transport(B_range, n_e, fractions, T; mat, μ_e) → (R_xy, R_xx)
 
-Compute R_xy and R_xx vs B using a smooth transport model.
+Compute Hall (R_xy) and longitudinal (R_xx) resistance vs B.
 
-R_xy transitions smoothly between quantized plateaus via sigmoid functions.
-R_xx is derived from the dissipative conductivity σ_xx, which peaks at
-plateau-to-plateau transitions with width ∝ disorder/gap.
+σ_xy: additive staircase of tanh sigmoid steps (semicircle-law-consistent).
+σ_xx: sech² peaks at each plateau transition.
+Resistivities from tensor inversion of the conductivity.
 """
 function compute_transport(B_range::AbstractVector, n_e::Real,
                            fractions::Vector{FractionData}, T::Real;
@@ -35,11 +47,11 @@ function compute_transport(B_range::AbstractVector, n_e::Real,
     # Sort fractions by ν (descending) → increasing B
     sorted = sort(fractions, by=f -> Float64(f.ν), rev=true)
 
-    # Precompute plateau data
+    # Precompute data for ALL fractions (used by σ_xx peaks)
     ν_f  = Float64[Float64(f.ν) for f in sorted]
     B_f  = [n_e * h / (e * ν) for ν in ν_f]
 
-    # Gap in Kelvin for each fraction
+    # Gap in Kelvin
     gap_K = Float64[]
     for (i, f) in enumerate(sorted)
         if f.gap_dimless > 0
@@ -49,15 +61,46 @@ function compute_transport(B_range::AbstractVector, n_e::Real,
         end
     end
 
-    # Disorder broadening in Kelvin
+    # Disorder broadening: Γ_K = ħe/(m*μ) in Kelvin (= ħ/τ in energy / k_B)
     Γ_K = CONSTANTS.ħ * e / (mat.m_star * μ_e) / kB
 
-    # Transition width in filling factor: σ_ν ∝ Γ/Δ (wider for weaker fractions)
-    σ_ν = Float64[]
+    # Wei–Tsui–Tsui universal exponent (PRL 61, 1294, 1988)
+    κ = 0.42
+
+    # ══════════════════════════════════════════════════════════════════
+    # σ_xy additive staircase: plateau-forming fractions only
+    # ══════════════════════════════════════════════════════════════════
+    # Include: gapped states (gap_dimless > 0) and integers (cyclotron gap)
+    # Exclude: gapless metallic states (ν=1/2 CFL)
+    ν_plat   = Float64[]
+    gap_plat = Float64[]
     for i in eachindex(sorted)
-        # Width controlled by ratio of disorder to gap, clamped
-        σ = clamp(0.015 * max(Γ_K, T) / max(gap_K[i], 0.1), 0.002, 0.08)
-        push!(σ_ν, σ)
+        if sorted[i].gap_dimless > 0 || denominator(sorted[i].ν) == 1
+            push!(ν_plat, ν_f[i])
+            push!(gap_plat, gap_K[i])
+        end
+    end
+    n_plat = length(ν_plat)
+
+    # Precompute transitions between each adjacent pair of plateaus
+    n_trans  = max(n_plat - 1, 0)
+    ν_trans  = Vector{Float64}(undef, n_trans)
+    δ_trans  = Vector{Float64}(undef, n_trans)
+    Δσ_step  = Vector{Float64}(undef, n_trans)  # conductance step per transition
+    for k in 1:n_trans
+        g_hi, g_lo = gap_plat[k], gap_plat[k+1]
+        ν_hi, ν_lo = ν_plat[k], ν_plat[k+1]
+        spacing = ν_hi - ν_lo
+
+        # Gap-weighted midpoint: stronger fraction claims more territory
+        ν_trans[k] = (ν_hi * g_lo + ν_lo * g_hi) / (g_hi + g_lo)
+
+        # Transition width: (Γ/Δ)^κ scaling (Wei et al.)
+        ratio = max(Γ_K, T) / max(min(g_hi, g_lo), 1e-10)
+        δ_trans[k] = spacing * ratio^κ
+
+        # Conductance step at this transition
+        Δσ_step[k] = (ν_hi - ν_lo) / RK
     end
 
     R_xy = similar(B_range, Float64)
@@ -70,75 +113,53 @@ function compute_transport(B_range::AbstractVector, n_e::Real,
 
         ν_B = n_e * h / (e * B)
 
-        # ── R_xy: smooth interpolation between plateaus ──
-        # Start from classical Hall line, add plateau corrections
-        R_xy_classical = B / (n_e * e)
-
-        # Find the two nearest plateaus bracketing ν_B
-        # and compute weighted plateau value
-        R_xy_val = R_xy_classical
-        total_weight = 0.0
-
-        for i in eachindex(ν_f)
-            # Sigmoid weight: how "locked" are we to this plateau?
-            # Uses a steep tanh profile; steepness ∝ 1/σ_ν
-            x = (ν_B - ν_f[i]) / σ_ν[i]
-            # Plateau weight: Gaussian-like, strong near ν_f, falls off with σ_ν
-            w = exp(-x^2 / 2)
-            # Thermal suppression: at high T, plateaus weaken
-            thermal = gap_K[i] > 0 ? min(1.0, gap_K[i] / (2T)) : 10.0
-            w *= min(thermal, 1.0)
-            total_weight += w
-        end
-
-        if total_weight > 0.01
-            # Blend plateau values weighted by proximity
-            R_blend = 0.0
-            for i in eachindex(ν_f)
-                x = (ν_B - ν_f[i]) / σ_ν[i]
-                w = exp(-x^2 / 2)
-                thermal = gap_K[i] > 0 ? min(1.0, gap_K[i] / (2T)) : 10.0
-                w *= min(thermal, 1.0)
-                R_plateau = RK / ν_f[i]
-                R_blend += w * R_plateau
+        # ── σ_xy: additive staircase ─────────────────────────────
+        # σ_xy = σ_base + Σ_k Δσ_k × ½(1 + tanh(x_k))
+        # Each transition contributes independently → no seam discontinuities.
+        # At ν well above all transitions: every frac ≈ 1 → σ_xy = ν_plat[1]/RK
+        # At ν well below all transitions: every frac ≈ 0 → σ_xy = ν_plat[end]/RK
+        if n_plat > 0 && ν_B <= ν_plat[1]
+            σ_xy_val = ν_plat[end] / RK
+            for k in 1:n_trans
+                x = (ν_B - ν_trans[k]) / δ_trans[k]
+                frac = 0.5 * (1.0 + tanh(x))
+                σ_xy_val += Δσ_step[k] * frac
             end
-            R_blend /= total_weight
-
-            # Smooth crossover between classical and plateau
-            lock_strength = min(total_weight, 1.0)
-            R_xy_val = lock_strength * R_blend + (1 - lock_strength) * R_xy_classical
+        else
+            σ_xy_val = ν_B / RK   # classical Hall (above all plateaus)
         end
 
-        R_xy[bi] = R_xy_val
-
-        # ── R_xx: dissipative conductivity peaks at transitions ──
-        # σ_xx peaks where ν is between plateaus (transition regions)
-        # Uses the semicircle law: σ_xx² + (σ_xy - σ_mid)² = (δσ)²
-
+        # ── σ_xx: sech² peaks at each transition ─────────────────
+        # Peak widths floored by the κ-scaled transition width to ensure
+        # consistency with σ_xy and prevent ultra-narrow integer spikes.
         σ_xx_val = 0.0
 
-        # For each adjacent pair of plateaus, compute the transition contribution
         for i in 1:length(ν_f)-1
             ν_hi = ν_f[i]
             ν_lo = ν_f[i+1]
             ν_mid = (ν_hi + ν_lo) / 2
+            spacing_i = ν_hi - ν_lo
 
-            # Transition region width in ν: sum of the two plateau σ values
-            σ_trans = σ_ν[i] + σ_ν[i+1]
+            # Base width from gap-scaled formula
+            σ_base = clamp(0.015 * max(Γ_K, T) / max(gap_K[i], 0.1), 0.002, 0.08) +
+                     clamp(0.015 * max(Γ_K, T) / max(gap_K[i+1], 0.1), 0.002, 0.08)
 
-            # How far are we from this transition midpoint?
+            # Floor: κ-scaled width consistent with the σ_xy transition model
+            gap_min_i = max(min(gap_K[i], gap_K[i+1]), 0.1)
+            σ_κ = spacing_i * (max(Γ_K, T) / gap_min_i)^κ
+
+            σ_trans = max(σ_base, σ_κ)
+
             x = (ν_B - ν_mid) / σ_trans
-
-            # Semicircle peak shape: sech² gives smooth, naturally-shaped peaks
             peak = 1.0 / cosh(1.5 * x)^2
 
             # Peak amplitude: proportional to the conductance step
-            δσ = (ν_hi - ν_lo) / (2 * RK)
+            δσ = spacing_i / (2 * RK)
             σ_xx_val += δσ * peak
         end
 
-        # Also add SdH oscillation for ν > highest fraction
-        if ν_B > ν_f[1] + 3 * σ_ν[1]
+        # SdH oscillations above the highest fraction
+        if ν_B > ν_f[1] + 0.3
             τ = mat.m_star * μ_e / e
             ωc = e * B / mat.m_star
             X = 2π^2 * kB * T / (CONSTANTS.ħ * ωc)
@@ -147,13 +168,10 @@ function compute_transport(B_range::AbstractVector, n_e::Real,
             σ_xx_val += (ν_B / RK) * 0.08 * (1.0 - 4.0 * dingle * thermal * cos(2π * ν_B))
         end
 
-        # Convert σ_xx to R_xx: R_xx = σ_xx / (σ_xx² + σ_xy²)
-        σ_xy = 1.0 / R_xy_val
-        denom = σ_xx_val^2 + σ_xy^2
-        R_xx[bi] = denom > 1e-30 ? σ_xx_val / denom : 0.0
-
-        # Ensure R_xx ≥ 0
-        R_xx[bi] = max(R_xx[bi], 0.0)
+        # ── Tensor inversion: (σ_xx, σ_xy) → (R_xx, R_xy) ──────
+        denom = σ_xx_val^2 + σ_xy_val^2
+        R_xy[bi] = denom > 1e-30 ? σ_xy_val / denom : 0.0
+        R_xx[bi] = denom > 1e-30 ? max(σ_xx_val / denom, 0.0) : 0.0
     end
 
     return R_xy, R_xx

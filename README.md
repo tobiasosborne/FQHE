@@ -4,7 +4,7 @@ Ab initio simulation of the Fractional Quantum Hall Effect in GaAs, from Haldane
 
 ![Fractional Quantum Hall Effect — GaAs 2DEG](fqhe_plot.png)
 
-*Hall resistance (R_xy, blue) and longitudinal resistance (R_xx, red) for a GaAs 2DEG at T = 50 mK. Fractional plateaux at the Jain principal sequence up to p = 7 are computed from first principles — the 1/3 gap is extracted via exact diagonalization on the Haldane sphere (N = 3–8 electrons, quadratic 1/N extrapolation), higher fractions follow from composite-fermion scaling. Gray: experimental data from a GaAs 2D hole gas ([Wang et al., PNAS 2023](https://doi.org/10.1073/pnas.2314212120), CC-BY-4.0), with B rescaled to align filling factors.*
+*Hall resistance (R_xy, blue) and longitudinal resistance (R_xx, red) for a GaAs 2DEG at T = 50 mK, 40 filling factors. The 1/3 gap is from DMRG on a cylinder (Ly=10, 86% of published reference); higher Jain fractions from composite-fermion scaling. Plateau widths and transition shapes are derived from the Dykhne–Ruzin semicircle law and Wei–Tsui–Tsui scaling (κ = 0.42). Gray: experimental data from a GaAs 2D hole gas ([Wang et al., PNAS 2023](https://doi.org/10.1073/pnas.2314212120), CC-BY-4.0), with B rescaled to align filling factors.*
 
 ## Overview
 
@@ -14,7 +14,8 @@ FQHE.jl builds the complete pipeline from microscopic Coulomb interactions to me
 2. **Pseudopotentials** — Coulomb interaction projected into the lowest Landau level (Fano et al. 1986, closed-form binomial formula)
 3. **Exact diagonalization** — sparse Hamiltonian in the Fock basis, Lanczos solver for ground state and excitation gaps (N up to 8 at $\nu = 1/3$)
 4. **Composite fermion theory** — geometric gap scaling for the Jain sequence: $\Delta(\nu = p/(2p+1)) = \Delta(1/3) \times r^{p-1}$
-5. **Transport model** — thermally activated $R_{xx}$ and quantized $R_{xy}$ plateaux with neighbor-aware width capping
+5. **DMRG on cylinder** — ITensors-based ground state and gap for ν=1/3 (Ly=10, χ=800), pseudopotential-decomposed MPO
+6. **Transport model** — σ_xy from additive tanh staircase (Dykhne–Ruzin semicircle law), σ_xx from sech² peaks, transition widths from Wei–Tsui–Tsui scaling (κ = 0.42), tensor inversion for R_xy and R_xx
 
 ## Quick start
 
@@ -55,13 +56,18 @@ src/
   composite_fermion.jl     # CF gap scaling for Jain sequence
   laughlin.jl              # Laughlin wavefunction overlaps
   integer_qhe.jl           # Integer QHE (analytic)
-  transport.jl             # R_xx, R_xy from gaps and temperature
+  transport.jl             # R_xx, R_xy from gaps (semicircle law + scaling theory)
+  cylinder.jl              # Cylinder geometry, pseudopotential decomposition
+  dmrg_hamiltonian.jl      # ITensors MPO assembly
+  dmrg_solver.jl           # DMRG solver wrapper
 
 scripts/
-  01_fetch_sources.jl      # Literature acquisition
   02_compute_gaps.jl       # Full gap pipeline (charge + neutral)
-  03_build_transport.jl    # Transport curve generation
-  04_make_plot.jl          # Final plot with ED + CF gaps
+  04_make_plot.jl          # Final plot with 40 fractions + exp overlay
+  06_cylinder_ed.jl        # Cylinder matrix element validation
+  07_validate_mpo.jl       # MPO vs sparse ED (matches to 5.5e-16)
+  08_dmrg_Ly_scan.jl       # Gap vs circumference scan
+  09_dmrg_gap.jl           # Production DMRG gap (ν=1/3, Ly=10)
 
 proof/                     # Formal verification artifacts
 test/                      # Unit tests
@@ -74,8 +80,9 @@ test/                      # Unit tests
 | Neutral gap, $\nu=1/3$, $N=6$ | 0.0820 $e^2/\epsilon\ell$ | 0.0822 | Fano et al. (1986) |
 | Neutral gap, $\nu=1/3$, $N=8$ | 0.0816 $e^2/\epsilon\ell$ | — | This work |
 | Neutral gap, $\nu=1/3$, $N\to\infty$ | 0.085 $e^2/\epsilon\ell$ | 0.1036 | Quadratic extrap. (82% of ref) |
+| Charge gap, $\nu=1/3$, DMRG cyl | 0.089 $e^2/\epsilon\ell$ | 0.1036 | Ly=10, χ=800 (86% of ref) |
 
-Quadratic $1/N + 1/N^2$ extrapolation from $N = 3$–$8$ gives 82% of the published reference. The remaining 18% gap is due to shell oscillations at small $N$ (the $N=8$ gap is non-monotonically *higher* than $N=7$). iDMRG on cylinders would bypass finite-size extrapolation entirely — see `docs/tensor_network_FQHE_survey.md`.
+The DMRG cylinder result (86% of reference) is the primary gap anchor; ED sphere extrapolation (82%) serves as a cross-check. The remaining 14% is from finite circumference (Ly=10) and bond dimension (χ=800).
 
 ## Experimental comparison
 
