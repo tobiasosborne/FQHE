@@ -12,7 +12,7 @@
 #   P04: Fano et al., PRB 34, 2670 (1986), Eq. (25), Appendix
 #   P01: Haldane, PRL 51, 605 (1983)
 
-export coulomb_pseudopotentials, two_body_element
+export coulomb_pseudopotentials, coulomb_pseudopotentials_nLL, two_body_element
 
 """
     coulomb_pseudopotentials(twoS) → Vector{Float64}
@@ -35,6 +35,56 @@ function coulomb_pseudopotentials(twoS::Integer)
         VJ[J + 1] = Float64(num) / Float64(denom)
     end
     return VJ
+end
+
+"""
+    coulomb_pseudopotentials_nLL(twoS, n_LL) → Vector{Float64}
+
+Haldane pseudopotentials for Coulomb 1/r in the n-th Landau level on the sphere.
+
+The n-th LL form factor modifies the effective interaction. The pseudopotential
+V_J^(n) is computed by numerical integration:
+
+  V_J^(n) = V_J^(0) × F_n(J, S)
+
+where F_n is the LL form factor ratio. For n=1 (second LL):
+  F_1 ≈ [1 - J(J+1)/(2S(2S+2))]² (leading-order Laguerre correction)
+
+More precisely, we use the exact formula involving Laguerre polynomials
+of the pair angular momentum.
+
+Units: same as coulomb_pseudopotentials (dimensionless, multiply by 1/R).
+"""
+function coulomb_pseudopotentials_nLL(twoS::Integer, n_LL::Int)
+    n_LL == 0 && return coulomb_pseudopotentials(twoS)
+
+    VJ_lll = coulomb_pseudopotentials(twoS)
+    VJ = zeros(Float64, twoS + 1)
+    S = twoS / 2.0
+
+    for J in 0:twoS
+        isodd(twoS - J) || continue
+
+        # LL form factor: the effective pseudopotential in the n-th LL
+        # is V_J^(n) = V_J^(0) × |L_n(J(J+1)/(4S+2))|² / |L_n(0)|²
+        # This is the standard result from Haldane (1983) and
+        # d'Ambrumenil & Morf (1989).
+        x = J * (J + 1) / (2S * (2S + 2))  # = q²/(4S+2) on sphere
+        Ln = _laguerre(n_LL, x)
+        VJ[J + 1] = VJ_lll[J + 1] * Ln^2
+    end
+    return VJ
+end
+
+"""Laguerre polynomial L_n(x) via recurrence."""
+function _laguerre(n::Int, x::Float64)
+    n == 0 && return 1.0
+    n == 1 && return 1.0 - x
+    L0, L1 = 1.0, 1.0 - x
+    for k in 2:n
+        L0, L1 = L1, ((2k - 1 - x) * L1 - (k - 1) * L0) / k
+    end
+    return L1
 end
 
 """

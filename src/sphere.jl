@@ -24,27 +24,29 @@ end
     shift(ν) → S_shift::Int
 
 Topological shift for filling fraction ν on the Haldane sphere.
-For all Jain fractions ν = p/(2p±1) and their particle-hole conjugates,
-and for Laughlin states ν = 1/m, the shift equals the denominator.
+The shift equals the denominator q for ALL odd-denominator FQH fractions
+(Laughlin, Jain principal/reverse at any flux attachment, and their
+particle-hole conjugates). This is the universal rule from Wen's
+topological classification.
 
-Ref: Jain, Composite Fermions, Table 4.2.
+Special cases:
+- ν = 1/2 (CFL): gapless composite Fermi liquid, no shift defined.
+- Even-denominator fractions (e.g., 5/2): handled via effective LL mapping.
+
+Ref: Jain, Composite Fermions, Table 4.2; Wen, Adv. Phys. 44, 405 (1995).
 """
 function shift(ν::Rational)
     p, q = numerator(ν), denominator(ν)
     0 < p < q || error("Need 0 < p < q for ν = $p/$q")
 
-    # Laughlin: ν = 1/q (q odd)
-    p == 1 && isodd(q) && return q
+    # ν = 1/2: Composite Fermi Liquid — gapless, no shift
+    p == 1 && q == 2 && error("ν = 1/2 is a gapless CFL state; shift is undefined")
 
-    # Principal Jain sequence: ν = p/(2p+1)
-    q == 2p + 1 && return q
+    # Universal rule: shift = denominator for all odd-denominator FQH fractions
+    isodd(q) && return q
 
-    # Second Jain sequence: ν = p/(2p-1)  [includes particle-hole conjugates]
-    q == 2p - 1 && return q
-
-    # Particle-hole conjugate: ν = (q-p)/q of a known fraction
-    ν_conj = (q - p) // q
-    return shift(ν_conj)
+    # Even denominators (e.g., 5/2 mapped to effective ν*) need special handling
+    error("ν = $ν has even denominator; use effective LL mapping")
 end
 
 """

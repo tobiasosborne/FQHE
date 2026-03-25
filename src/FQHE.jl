@@ -27,6 +27,15 @@ include("hamiltonian.jl")
 # Lanczos/Arnoldi exact diagonalisation
 include("exact_diag.jl")
 
+# Cylinder geometry and Coulomb matrix elements (pseudopotential decomposition)
+include("cylinder.jl")
+
+# DMRG Hamiltonian (ITensors MPO on cylinder)
+include("dmrg_hamiltonian.jl")
+
+# DMRG solver and gap extraction
+include("dmrg_solver.jl")
+
 # Composite fermion theory (cross-check)
 include("composite_fermion.jl")
 

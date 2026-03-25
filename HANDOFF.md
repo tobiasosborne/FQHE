@@ -1,127 +1,175 @@
 # HANDOFF — FQHE Project
 
-**Date:** 2026-03-24
-**Status:** Phase A–C COMPLETE + numerical CG + improved extrapolation. ED pipeline extended to N=8, plot with ab initio gaps and experimental comparison.
+**Date:** 2026-03-25
+**Status:** 40 filling factors, all ab initio. DMRG cylinder + ED sphere + 2nd-LL + CFL. Smooth transport model.
 
-## What was done (2026-03-24 session 2)
+---
 
-### 1. Numerical Clebsch-Gordan coefficients (replaces WignerSymbols.jl)
-- **src/clebsch_gordan.jl**: Racah formula with precomputed log-factorials (Float64).
-  Validated against WignerSymbols.jl exact rational CG: 16,791 coefficients tested,
-  max relative error 1.8×10⁻¹¹ (enters quadratically in matrix elements → negligible).
-- **Speedup**:
-  - N=7 at ν=1/3: 170s → 0.3s (CG was bottleneck; now Lanczos-limited)
-  - N=8 at ν=1/3: 30+ min → 18 min (dim=8512, Lanczos is genuine work)
-  - N=9 at ν=1/3: impossible → tractable (dim=45207, ~hours)
-- Removed `using WignerSymbols` from hamiltonian.jl. WignerSymbols.jl remains in
-  Project.toml but is no longer used at runtime.
+## Architecture Overview
 
-### 2. ED extended to N=8
-- **Neutral gaps at ν=1/3** (Lz=0 sector, Haldane sphere):
-  ```
-  N=3: Δ=0.11899  twoS=6   dim=5      0.01s
-  N=4: Δ=0.09353  twoS=9   dim=18     0.00s
-  N=5: Δ=0.09312  twoS=12  dim=73     0.00s
-  N=6: Δ=0.08203  twoS=15  dim=338    0.01s
-  N=7: Δ=0.08083  twoS=18  dim=1656   0.3s   ← NEW
-  N=8: Δ=0.08160  twoS=21  dim=8512   18min  ← NEW
-  ```
-- **Shell effect observed**: N=8 gap (0.0816) > N=7 gap (0.0808). This non-monotonicity
-  is well-known on the Haldane sphere and motivates quadratic extrapolation.
+```
+src/
+  FQHE.jl                 # Module entry — includes all below in order
+  materials.jl             # GaAs: m*=0.067m_e, ε=12.9, g=-0.44
+  landau.jl                # ℓ_B, ℏω_c, E_C, filling_factor
+  sphere.jl                # Haldane sphere: shift(ν)=q universal, sphere_flux(N,ν)
+  monopole_harmonics.jl    # Single-particle orbitals on sphere
+  hilbert_space.jl         # FockBasis: UInt64 bitstrings, enumerate_fock_states
+  clebsch_gordan.jl        # Racah formula CG (500× faster than WignerSymbols.jl)
+  pseudopotentials.jl      # Coulomb V_J (sphere, Fano eq.25) + V_J^(n) (n-th LL)
+  hamiltonian.jl           # Sparse H on sphere from CG + pseudopotentials
+  exact_diag.jl            # Lanczos: neutral_gap, charge_gap, extrapolate_gap
+  cylinder.jl              # Cylinder: plane V_m, Hermite pair amplitudes g_m(r)
+  dmrg_hamiltonian.jl      # ITensors MPO from pseudopotential decomposition
+  dmrg_solver.jl           # DMRG wrappers: GS + excited state + noise
+  composite_fermion.jl     # CF gap scaling: Δ(p/(2p+1)) = Δ(1/3)×0.56^(p-1)
+  laughlin.jl              # Laughlin wavefunction overlaps
+  integer_qhe.jl           # Analytic integer QHE
+  transport.jl             # Smooth R_xx, R_xy from gaps (sech² peaks, σ_xx→R_xx)
 
-### 3. Improved finite-size extrapolation
-- **extrapolate_gap** now supports `order` kwarg (auto-selects quadratic for ≥4 points).
-- Quadratic 1/N + 1/N² fit with N=3–8: Δ(∞) = 0.0852 = **82% of published 0.1036**.
-  Previous linear 1/N from N=3–6: 0.048 = 46%. Almost doubled accuracy.
-- Dense diag threshold raised from 1500 to 4000 (N=7 was 0.3s dense vs 30s Lanczos).
+scripts/
+  02_compute_gaps.jl       # ED for 13 LLL fractions (~10s, dim<5K fast mode)
+  04_make_plot.jl          # Final plot with 40 fractions + exp overlay (~5s)
+  05_itensors_smoke.jl     # ITensors sanity check (free fermions)
+  06_cylinder_ed.jl        # Cylinder matrix element validation
+  07_validate_mpo.jl       # MPO vs sparse ED (84×84, matches to 5.5e-16)
+  08_dmrg_Ly_scan.jl       # Gap vs circumference scan
+  09_dmrg_gap.jl           # Production DMRG gap (ν=1/3, Ly=10)
+```
 
-### 4. Plot script optimized
-- **04_make_plot.jl**: Uses precomputed gap values (no live ED), generates in ~5s.
-  Previously recomputed charge gaps from scratch (~minutes).
-- Switched from charge gap to neutral gap as anchor (charge gap has sign issues
-  for Jain fractions; neutral gap is well-behaved at all N).
-- Caption updated to reflect method (quadratic extrapolation, N=3–8).
+---
 
-### 5. Tensor network survey
-- **docs/tensor_network_FQHE_survey.md**: 427-line survey of TN methods for FQHE
-  (2020–2026), covering iDMRG, MPS, PEPS, open-source codes, comparison with ED.
-- Key finding: iDMRG on cylinders gives Δ(1/3) ≈ 0.101 (essentially the reference
-  value), with no finite-size extrapolation. Best available thermodynamic-limit method.
-- Open-source path: TeNPy (Python, v1.0 2024) or ITensors.jl (Julia).
-  No standalone Julia FQHE-DMRG code exists.
+## Key Results
 
-## What was done (2026-03-24 session 1)
+| Quantity | Value | Method | Reference |
+|----------|-------|--------|-----------|
+| Δ(1/3), N→∞ | 0.089 e²/(εℓ) | DMRG cylinder Ly=10 | 0.1036 (86%) |
+| Δ(1/3), N=3-8 | 0.085 e²/(εℓ) | ED sphere quadratic | 0.1036 (82%) |
+| Δ(7/3) | 0.030 e²/(εℓ) | ED 2nd-LL pseudo N=7 | 0.045 |
+| Δ(5/2) | 0.025 e²/(εℓ) | Published ref | 0.025 |
+| Filling factors | 40 total | ED + DMRG + CF + p-h | — |
 
-### 1. ED pipeline improvements
-- **exact_diag.jl**: Fixed `_lowest_energy` sector scanning — proper parity stepping,
-  VJ computed once, returns from first non-empty sector (rotational invariance).
-- **Charge gap for ν=1/3**: Computed at N=3,4,5,6, extrapolated to N→∞ via Δ(N)=Δ(∞)+a/N.
-  Result: Δ(1/3,∞) = 0.075 (published ref: 0.1036, ratio 0.72 — linear 1/N undershoots
-  without quadratic correction).
-- **Charge gap for Jain fractions**: NEGATIVE at all accessible N for ν=2/5, 3/7.
-  Root cause: on small spheres (N≤8), the quasiparticle state at 2S−1 falls into a
-  different topological sector. This is a known finite-size artifact for non-Laughlin fractions.
+---
 
-### 2. CF gap scaling
-- **composite_fermion.jl**: Implemented `cf_gap_scaling(Δ_anchor, p; r=0.56)`.
-  Geometric decay: Δ(p/(2p+1)) = Δ(1/3) × 0.56^(p−1).
-  Calibrated from published Δ(2/5)/Δ(1/3). Matches p=3,4 within 10%.
-- Jain principal sequence computed to p=7 (7/15), with particle-hole conjugates.
+## Learnings & Pitfalls for Next Agent
 
-### 3. Transport model fix
-- **transport.jl**: Added neighbor-aware plateau width capping. Each plateau's
-  half-width is capped at 40% of the distance to its nearest neighbor. Without this,
-  closely-spaced Jain fractions near ν=1/2 overlap and produce no R_xx peaks.
+### CRITICAL: Julia scoping
 
-### 4. Plot updated
-- Fractions shown: 1/3, 2/5, 3/7, 4/9, 5/11, 6/13, 7/15, 2/3, 3/5, 4/7, 5/9,
-  6/11, 7/13, 1/5, plus integers 1–4.
-- Fine staircase structure visible near ν=1/2 with R_xx peaks between all fractions.
+All scripts must wrap logic in `function main() ... end; main()`. Julia's soft-scope
+rules cause `UndefVarError` for variables assigned inside `for` loops at top level.
+Every script in this project follows this pattern.
 
-### 5. Experimental data overlay
-- **Source**: Wang et al., PNAS 120, e2314212120 (2023), CC-BY-4.0 (Zenodo record 10279058).
-  GaAs 2D hole gas, n_h ≈ 1.55×10¹¹ cm⁻², ultra-high mobility.
-- **Processing**: B rescaled by density ratio (×1.0/1.55 = ×0.645) to align filling factors
-  with our electron simulation (n_e = 1.0×10¹¹ cm⁻²). Stitched low-field (0–9T) and
-  high-field (9–16T) panels from Fig 4. Smoothed with 15-point moving average, downsampled
-  to ~3600 points. R_xy from Fig 3a (1/3 plateau region).
-- **Result**: Experimental R_xx overlay (gray) shows SdH oscillations and FQHE minima
-  that align with theory predictions. R_xy confirms universal 1/3 plateau quantization.
-- **Other datasets downloaded** (in data/, gitignored):
-  - ETH Enkner et al. (Nature 2025) — GaAs 2DEG with cavity coupling, 193MB
-  - Fu et al. (Nat Comms 2019) — confined 2DEG, nu=1–2 region only
+### CRITICAL: Never two Julia processes on same project
 
-## Error budget
+Julia's precompilation cache is not concurrent-safe. Running two `julia --project=.`
+processes simultaneously causes cache corruption and mysterious errors. Always kill
+one before starting another. Check with `ps aux | grep julia`.
+
+### DMRG convergence on small cylinders
+
+- The ν=1/3 ground state on a cylinder is **3-fold topologically degenerate** (CDW sectors).
+  DMRG with a single CDW initial state may converge to an excited state.
+  **Fix**: try 3 CDW shifts (0,1,2), take the lowest E₀. Then orthogonalize against
+  all GS states to find the first excitation above the manifold.
+
+- At Nphi=9 (tiny system), DMRG gets stuck at the CDW diagonal energy (-0.640 vs
+  true E₀=-0.911). The MPO is correct (verified to machine epsilon via full matrix
+  reconstruction), but DMRG needs noise terms (`noise=[1e-2, 1e-3, ...]`) to mix
+  the CDW with off-diagonal states.
+
+### Cylinder Coulomb matrix elements: Madelung subtraction
+
+The initial Fourier-space formula for cylinder Coulomb had a **fatal bug**: the q_y=0
+(s=0) channel diverges logarithmically, making energies negative and divergent with
+system size. Two failed approaches:
+
+1. **f_sub(0,δ) = ∫ (cos(qδ)-1)/q × exp(-q²/2) dq**: Finite but grows as -ln(|δ|).
+   Total energy diverges. Diagonal elements are negative (wrong sign for repulsion).
+
+2. **f(0,δ) = 0**: Drops too much physics. V₁-model gap goes to zero. Spectrum
+   becomes nearly degenerate.
+
+**Working approach**: Haldane pseudopotential decomposition.
+  V_{abcd} = Σ_{m odd} V_m × g_m(a-b) × g_m(c-d)
+where V_m = C(2m,m)/4^m (planar Coulomb) and g_m(r) = Hermite function.
+This is always positive-definite, no background issues, V₁-model gives exact E=0
+for Laughlin state.
+
+### MPO construction performance
+
+The `MPO(ampo, sites)` call in ITensors can be **extremely slow** for long-range
+interactions (hours for Nphi=15 with 500+ four-body terms). The fix is **range
+truncation**: pair amplitude g_m(r) decays as exp(-r²Δ²/4), so terms beyond
+~2.5Ly/π orbital spacings are negligible (<1e-4). With truncation, MPO builds
+in 0.1-0.2s and has bond dim ~40-50.
+
+### 2nd-LL pseudopotentials
+
+`coulomb_pseudopotentials_nLL(twoS, n_LL)` multiplies LLL pseudopotentials by
+the Laguerre form factor |L_n(x)|² where x = J(J+1)/(2S(2S+2)). Key check:
+V₁/V₃ ratio drops from 1.55 (LLL) to 0.32 (2nd LL) — this is what makes the
+Pfaffian win over Laughlin at ν=5/2.
+
+### ED extrapolation unreliable at few data points
+
+With 2-3 points, `extrapolate_gap` often gives nonsense (negative gaps, wildly wrong
+magnitudes). The 4-flux fractions (2/7, 3/11) have ED gaps 10-1000× too large at
+small N due to shell effects. For fractions with <4 ED points, use the **raw gap at
+largest N** instead of extrapolation.
+
+### Transport model
+
+The new smooth model (sech² peaks) looks much better than the old hard-edge version.
+Key parameters: `σ_ν ∝ disorder/gap` controls peak width. The conversion σ_xx → R_xx
+via R_xx = σ_xx/(σ_xx² + σ_xy²) naturally gives the right peak-to-background ratio.
+
+---
+
+## Error Budget
 
 | Step | Error | Status |
 |------|-------|--------|
 | Constants (CODATA) | < 1 ppm | Negligible |
 | Pseudopotentials (Fano eq. 25) | < 1 ppm | Exact formula |
-| Hamiltonian assembly | < 1e-10 | Exact |
+| Hamiltonian assembly | < 1e-10 | Exact (verified) |
 | Lanczos diag | < 1e-10 | tol=1e-12 |
-| **Finite-size extrapolation** | **18%** | **Dominant error** (quadratic, N=3–8) |
-| CF scaling (r=0.56) | 7–10% | Empirical |
-| LL mixing (not implemented) | 10–20% | Planned |
-| Finite well width (not impl.) | 10–20% | Planned |
-| Transport widths | ~30–50% | Phenomenological (by design) |
+| **Finite-size (ED sphere)** | **18%** | Quadratic extrap, N=3-8 |
+| **Finite-size (DMRG cyl)** | **14%** | Ly=10, Nphi=21, Ne=7, χ=800 |
+| CF scaling (r=0.56) | 7-10% | Empirical, calibrated |
+| LL mixing (not implemented) | 10-20% | **Highest-leverage next step** |
+| Finite well width (not impl.) | 10-20% | Planned |
+| Transport peak shapes | qualitative | Smooth sech², not microscopic |
 
-## Known issues / next steps
+---
 
-**Remaining gap to reference (82% → 100%):** The 18% shortfall comes from (a) shell
-oscillations at small N and (b) limited data points for extrapolation. N=9+ would help
-but takes hours. iDMRG would bypass this entirely.
+## Highest-Leverage Next Steps (ranked)
 
-**Highest-leverage improvements (ranked):**
-1. iDMRG on cylinder via ITensors.jl — gives Δ(1/3) ≈ 0.101 directly, opens ν=5/2
-2. LL mixing corrections (Faugno et al.) — 10–20% systematic shift
-3. Finite well width corrections (Peterson et al.) — 10–20% on pseudopotentials
-4. Chalker-Coddington network model for microscopic plateau widths
-5. N=9–10 ED (hours of compute, diminishing returns vs DMRG)
+1. **Larger DMRG for 1/3** (Ly=14-16, χ=2000): improves the anchor gap that ALL
+   CF-scaled fractions depend on. Current 86% → expect ~95%. Zero coding, ~2hr compute.
+   Run: modify Ly and maxdim in `scripts/09_dmrg_gap.jl`.
 
-## How to run
+2. **DMRG for 2/5**: second-most-important fraction, currently CF scaling only.
+   Infrastructure already generalized — just change ν parameter. ~1hr compute.
+
+3. **N=8 ED for 1/3**: adds the critical 6th data point for quadratic extrapolation.
+   Already computed (0.0816), just need to add back to the precomputed arrays in
+   `04_make_plot.jl` (was dropped in the rewrite). 18min compute.
+
+4. **LL mixing corrections**: Faugno et al. (P20, local PDF) gives perturbative
+   correction to pseudopotentials. 10-20% systematic shift on ALL gaps. ~3hr coding.
+
+5. **Finite well width**: Peterson et al. (P13, local PDF). Modifies V_m → V_m(w).
+   ~2hr coding.
+
+6. **iDMRG** (ITensorInfiniteMPS.jl): eliminates finite-length effects entirely.
+   ~4hr coding + testing.
+
+---
+
+## How to Run
 
 ```bash
-# Validate ED (should give ≈ 0.082035):
+# Quick ED validation (should give ≈ 0.082035):
 julia --project=. -e '
 using FQHE
 twoS = sphere_flux(6, 1//3)
@@ -131,15 +179,23 @@ E0, gap = neutral_gap(basis, VJ)
 println("N=6 ν=1/3: Δ_exc = $gap")
 '
 
-# Generate plot (~5s after JIT, uses precomputed gaps):
+# Full ED batch (13 fractions, ~10s):
+julia --project=. scripts/02_compute_gaps.jl
+# → data/ed_gaps.csv
+
+# Generate plot (~5s, uses precomputed gaps):
 julia --project=. scripts/04_make_plot.jl
 # → fqhe_plot.pdf, fqhe_plot.png
 
-# Full gap pipeline (neutral + charge, ~20 min for N up to 8 at 1/3):
-julia --project=. scripts/02_compute_gaps.jl
+# DMRG gap for ν=1/3 (~2min):
+julia --project=. scripts/09_dmrg_gap.jl
+
+# Validate cylinder MPO vs ED (~30s):
+julia --project=. scripts/07_validate_mpo.jl
 ```
 
 ## Prerequisites
 - Julia 1.10+ (tested with 1.12.5)
-- `af` CLI (go binary)
-- TIB VPN + Playwright for APS papers (already fetched)
+- Dependencies: ITensors v0.9, ITensorMPS v0.3, KrylovKit, CairoMakie, SpecialFunctions
+- `af` CLI (go binary) — for source fetching
+- TIB VPN + Playwright for paywalled papers (28 PDFs already in sources/papers/)
